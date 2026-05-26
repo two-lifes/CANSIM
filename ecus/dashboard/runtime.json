@@ -1,0 +1,53 @@
+{
+  "customExpr": "a + b",
+  "formula": "min",
+  "offset": 20.0,
+  "scale": 1.0,
+  "sensors": [
+    {
+      "settings": {
+        "accelRpmPerSec": 2500,
+        "decelRpmPerSec": 400,
+        "idle": 900,
+        "max": 7000,
+        "noiseRpm": 30,
+        "throttle": 0.42,
+        "wobbleRpm": 80
+      },
+      "typeId": "speed"
+    },
+    {
+      "settings": {
+        "accelRpmPerSec": 3000,
+        "decelRpmPerSec": 400,
+        "idle": 732.32,
+        "max": 6218.35,
+        "noiseRpm": 150,
+        "throttle": 0.5,
+        "wobbleRpm": 50
+      },
+      "typeId": "speed"
+    },
+    {
+      "settings": {
+        "accelRpmPerSec": 2000,
+        "decelRpmPerSec": 400,
+        "idle": 777.73,
+        "max": 6361.61,
+        "noiseRpm": 150,
+        "throttle": 0.5,
+        "wobbleRpm": 10
+      },
+      "typeId": "speed"
+    }
+  ],
+  "tx": {
+    "can_id": "0x300",
+    "encoding": "float32",
+    "metric": "speed_kmh",
+    "schedule": {
+      "interval_ms": 50,
+      "mode": "interval"
+    }
+  }
+}

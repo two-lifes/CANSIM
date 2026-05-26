@@ -4,6 +4,7 @@ export class BrokerClient {
     this.ws = null;
     this.handlers = {};
     this.ecuId = null;
+    this.closedByApp = false;
   }
 
   on(type, fn) {
@@ -12,23 +13,39 @@ export class BrokerClient {
 
   connect() {
     return new Promise((resolve, reject) => {
+      let settled = false;
       this.ws = new WebSocket(this.url);
       this.ws.onopen = () => this.send({ type: "register" });
       this.ws.onmessage = (ev) => {
         const msg = JSON.parse(ev.data);
         if (msg.type === "registered") {
           this.ecuId = msg.ecu_id;
+          settled = true;
           resolve(msg);
+          const fn = this.handlers.registered;
+          if (fn) fn(msg);
           return;
         }
         const fn = this.handlers[msg.type];
         if (fn) fn(msg);
       };
-      this.ws.onerror = () => reject(new Error("Нет связи с ECU"));
+      this.ws.onerror = () => {
+        if (!settled) reject(new Error("Нет связи с ECU"));
+      };
       this.ws.onclose = () => {
-        if (this.handlers.close) this.handlers.close();
+        if (!settled) reject(new Error("Нет связи с ECU"));
+        if (this.handlers.close) this.handlers.close({ byApp: this.closedByApp });
       };
     });
+  }
+
+  close() {
+    this.closedByApp = true;
+    this.ws?.close();
+  }
+
+  isOpen() {
+    return this.ws?.readyState === WebSocket.OPEN;
   }
 
   send(obj) {
@@ -77,4 +94,22 @@ export function setStatusLine(id, ok, text) {
   const dot = document.getElementById(id + "Dot");
   const line = document.getElementById(id + "Text");
   setStatus(dot, line, ok, text);
+}
+
+const AUTO_RECONNECT_KEY = "linuxcan.autoReconnect.enabled";
+
+export function readAutoReconnect() {
+  try {
+    return localStorage.getItem(AUTO_RECONNECT_KEY) !== "0";
+  } catch {
+    return true;
+  }
+}
+
+export function writeAutoReconnect(enabled) {
+  try {
+    localStorage.setItem(AUTO_RECONNECT_KEY, enabled ? "1" : "0");
+  } catch {
+    // localStorage может быть недоступен в приватном режиме; тогда оставляем значение в памяти.
+  }
 }

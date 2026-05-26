@@ -3,10 +3,13 @@
 #include "encoding.hpp"
 #include "hooks.hpp"
 
+#include <algorithm>
 #include <chrono>
-#include <cstdio>
 #include <cmath>
+#include <cstdio>
+#include <fstream>
 #include <iostream>
+#include <limits>
 #include <set>
 #include <stdexcept>
 
@@ -21,6 +24,7 @@ std::string hex_id(uint32_t id) {
 nlohmann::json tx_to_json(const TxProfile& tx) {
   return {{"can_id", hex_id(tx.can_id)},
           {"encoding", tx.encoding},
+          {"metric", tx.metric},
           {"schedule", {{"mode", tx.schedule_mode}, {"interval_ms", tx.interval_ms}}}};
 }
 
@@ -34,6 +38,106 @@ nlohmann::json rx_to_json(const RxProfile& rx) {
   return {{"filters", filters}};
 }
 
+double json_number(const nlohmann::json& j, const char* key, double fallback) {
+  if (!j.contains(key) || !j.at(key).is_number()) return fallback;
+  return j.at(key).get<double>();
+}
+
+double clamp(double value, double lo, double hi) {
+  return std::max(lo, std::min(hi, value));
+}
+
+double random_uniform(std::mt19937& rng, double lo, double hi) {
+  std::uniform_real_distribution<double> dist(lo, hi);
+  return dist(rng);
+}
+
+template <typename RuntimeSensorT>
+double tick_runtime_sensor(RuntimeSensorT& sensor, double dt_ms, std::mt19937& rng) {
+  const auto& s = sensor.settings;
+  const std::string& type = sensor.type_id;
+
+  if (type == "temperature") {
+    const double min = json_number(s, "min", 20.0);
+    const double max = std::max(min, json_number(s, "max", 80.0));
+    const double period_ms = std::max(200.0, json_number(s, "periodMs", 8000.0));
+    const double noise = std::max(0.0, json_number(s, "noise", 0.5));
+    if (!sensor.init) {
+      sensor.s0 = 0.0;  // phase
+      sensor.init = true;
+    }
+    sensor.s0 += (dt_ms / period_ms) * (2.0 * M_PI);
+    const double base = (min + max) * 0.5 + ((max - min) * 0.5) * std::sin(sensor.s0);
+    return base + random_uniform(rng, -noise, noise);
+  }
+
+  if (type == "pressure") {
+    const double mean = json_number(s, "mean", 2.0);
+    const double sigma = std::max(0.0, json_number(s, "sigma", 0.15));
+    const double clamp_min = json_number(s, "clampMin", 0.0);
+    const double clamp_max = std::max(clamp_min, json_number(s, "clampMax", 5.0));
+    if (!sensor.init) {
+      sensor.s0 = mean;  // value
+      sensor.init = true;
+    }
+    const double next = sensor.s0 + random_uniform(rng, -0.5, 0.5) * sigma * 0.4 + (mean - sensor.s0) * 0.05;
+    sensor.s0 = clamp(next, clamp_min, clamp_max);
+    return sensor.s0;
+  }
+
+  if (type == "speed") {
+    const double idle = json_number(s, "idle", 800.0);
+    const double max = std::max(idle, json_number(s, "max", 6500.0));
+    const double throttle = clamp(json_number(s, "throttle", 0.5), 0.0, 1.0);
+    const double accel = std::max(0.0, json_number(s, "accelRpmPerSec", 600.0));
+    const double decel = std::max(0.0, json_number(s, "decelRpmPerSec", 400.0));
+    const double wobble = std::max(0.0, json_number(s, "wobbleRpm", 80.0));
+    const double noise = std::max(0.0, json_number(s, "noiseRpm", 15.0));
+    const double dt = std::max(0.001, dt_ms / 1000.0);
+    if (!sensor.init) {
+      sensor.s0 = idle;  // base value
+      sensor.s1 = 0.0;   // phase
+      sensor.init = true;
+    }
+    const double target = idle + (max - idle) * throttle;
+    sensor.s0 = sensor.s0 < target ? std::min(target, sensor.s0 + accel * dt)
+                                   : std::max(target, sensor.s0 - decel * dt);
+    sensor.s1 += dt * (0.6 + throttle * 1.8);
+    const double wobble_value = std::sin(sensor.s1 * 2.0 * M_PI) * wobble * (0.25 + throttle * 0.75);
+    const double noise_value = random_uniform(rng, -noise, noise);
+    return clamp(sensor.s0 + wobble_value + noise_value, idle, max);
+  }
+
+  if (type == "digital") {
+    return json_number(s, "value", 0.0) > 0.5 ? 1.0 : 0.0;
+  }
+
+  if (type == "constant") {
+    return json_number(s, "value", 1.0);
+  }
+
+  return 0.0;
+}
+
+double aggregate_values(const std::vector<double>& values, const std::string& formula) {
+  if (values.empty()) return 0.0;
+  if (formula == "sum") {
+    double sum = 0.0;
+    for (double v : values) sum += v;
+    return sum;
+  }
+  if (formula == "min") {
+    return *std::min_element(values.begin(), values.end());
+  }
+  if (formula == "max") {
+    return *std::max_element(values.begin(), values.end());
+  }
+  if (formula == "first") return values.front();
+  double sum = 0.0;
+  for (double v : values) sum += v;
+  return sum / static_cast<double>(values.size());
+}
+
 }  // namespace
 
 Ecu::Ecu(std::string ecu_id, std::string can_interface)
@@ -41,7 +145,12 @@ Ecu::Ecu(std::string ecu_id, std::string can_interface)
 
 Ecu::~Ecu() { stop(); }
 
-void Ecu::set_defaults(EcuDefaults defaults) { defaults_ = std::move(defaults); }
+void Ecu::set_defaults(EcuDefaults defaults) {
+  defaults_ = std::move(defaults);
+  active_tx_ = defaults_.tx;
+}
+
+void Ecu::set_config_dir(std::string path) { config_dir_ = std::move(path); }
 
 void Ecu::set_ui_endpoint(int port, std::string page) {
   ui_port_ = port;
@@ -60,21 +169,17 @@ void Ecu::start() {
     std::cerr << "ECU " << ecu_id_ << ": CAN " << can_.interface_name()
               << " unavailable (run scripts/setup-vcan.sh)\n";
   }
-  std::lock_guard lock(mu_);
-  sync_app_rx_filters_locked();
+  {
+    std::lock_guard lock(mu_);
+    active_tx_ = defaults_.tx;
+    sync_app_rx_filters_locked();
+    load_runtime_model();
+    start_process_interval_locked();
+  }
 }
 
 void Ecu::stop() {
-  std::vector<UiClient*> clients;
-  {
-    std::lock_guard lock(mu_);
-    for (auto& [fd, ui] : ui_clients_) {
-      (void)fd;
-      ui->interval_stop = true;
-      clients.push_back(ui.get());
-    }
-  }
-  for (auto* ui : clients) stop_interval(*ui);
+  stop_process_interval();
   {
     std::lock_guard lock(mu_);
     ui_clients_.clear();
@@ -88,11 +193,9 @@ nlohmann::json Ecu::status() const {
   auto j = defaults_.to_json(ui_port_, ui_page_);
   {
     std::lock_guard lock(mu_);
-    // If multiple browser tabs are open, the highest fd is the latest UI client.
-    // That is the runtime state the diagnostics monitor should show.
+    j["tx"] = tx_to_json(active_tx_);
     for (const auto& [fd, ui] : ui_clients_) {
       (void)fd;
-      if (ui->tx) j["tx"] = tx_to_json(*ui->tx);
       if (ui->rx) j["rx"] = rx_to_json(*ui->rx);
     }
   }
@@ -118,17 +221,9 @@ void Ecu::attach_ui(int fd) {
 }
 
 void Ecu::detach_ui(int fd) {
-  std::unique_ptr<UiClient> removed;
-  {
-    std::lock_guard lock(mu_);
-    auto it = ui_clients_.find(fd);
-    if (it == ui_clients_.end()) return;
-    it->second->interval_stop = true;
-    removed = std::move(it->second);
-    ui_clients_.erase(it);
-    sync_app_rx_filters_locked();
-  }
-  stop_interval(*removed);
+  std::lock_guard lock(mu_);
+  ui_clients_.erase(fd);
+  sync_app_rx_filters_locked();
 }
 
 void Ecu::apply_defaults(UiClient& ui) {
@@ -144,7 +239,6 @@ void Ecu::register_ui(int fd) {
 
     apply_defaults(*ui);
     sync_app_rx_filters_locked();
-    start_interval_locked(*ui);
   }
 
   std::cerr << "ECU " << ecu_id_ << ": UI connected (fd=" << fd << ")\n";
@@ -159,25 +253,16 @@ Ecu::UiClient* Ecu::ui_by_fd(int fd) {
 }
 
 void Ecu::set_tx_config(int fd, const nlohmann::json& profile) {
-  std::thread old_thread;
   {
     std::lock_guard lock(mu_);
     auto* ui = ui_by_fd(fd);
     if (!ui) return;
-    ui->tx = TxProfile::from_json(profile.contains("profile") ? profile["profile"] : profile);
-    ui->interval_stop = true;
-    if (ui->interval_thread.joinable()) old_thread = std::move(ui->interval_thread);
+    const auto tx = TxProfile::from_json(profile.contains("profile") ? profile["profile"] : profile);
+    ui->tx = tx;
+    active_tx_ = tx;
+    save_runtime_model();
   }
-
-  if (old_thread.joinable()) old_thread.join();
-
-  {
-    std::lock_guard lock(mu_);
-    auto* ui = ui_by_fd(fd);
-    if (!ui) return;
-    ui->interval_stop = false;
-    start_interval_locked(*ui);
-  }
+  restart_process_interval();
 }
 
 void Ecu::set_rx_config(int fd, const nlohmann::json& profile) {
@@ -187,6 +272,69 @@ void Ecu::set_rx_config(int fd, const nlohmann::json& profile) {
   const auto& body = profile.contains("profile") ? profile["profile"] : profile;
   ui->rx = RxProfile::from_json(body);
   sync_app_rx_filters_locked();
+}
+
+void Ecu::apply_runtime_model(const nlohmann::json& model) {
+  runtime_formula_ = model.value("formula", std::string("avg"));
+  runtime_custom_expr_ = model.value("customExpr", std::string());
+  runtime_scale_ = model.value("scale", 1.0);
+  runtime_offset_ = model.value("offset", 0.0);
+  runtime_sensors_.clear();
+
+  for (const auto& item : model.value("sensors", nlohmann::json::array())) {
+    if (!item.is_object()) continue;
+    RuntimeSensor rs;
+    rs.type_id = item.value("typeId", std::string());
+    rs.settings = item.value("settings", nlohmann::json::object());
+    if (rs.type_id.empty()) continue;
+    runtime_sensors_.push_back(std::move(rs));
+  }
+  runtime_enabled_ = !runtime_sensors_.empty();
+  runtime_last_tick_ = {};
+}
+
+void Ecu::load_runtime_model() {
+  if (config_dir_.empty()) return;
+  const std::string path = config_dir_ + "/runtime.json";
+  std::ifstream in(path);
+  if (!in) return;
+  try {
+    nlohmann::json j;
+    in >> j;
+    apply_runtime_model(j);
+    if (j.contains("tx")) active_tx_ = TxProfile::from_json(j["tx"]);
+  } catch (const std::exception& e) {
+    std::cerr << "ECU " << ecu_id_ << ": failed to load runtime.json: " << e.what() << "\n";
+  }
+}
+
+void Ecu::save_runtime_model() {
+  if (config_dir_.empty()) return;
+  nlohmann::json j;
+  j["formula"] = runtime_formula_;
+  j["customExpr"] = runtime_custom_expr_;
+  j["scale"] = runtime_scale_;
+  j["offset"] = runtime_offset_;
+  j["sensors"] = nlohmann::json::array();
+  for (const auto& rs : runtime_sensors_) {
+    j["sensors"].push_back({{"typeId", rs.type_id}, {"settings", rs.settings}});
+  }
+  j["tx"] = tx_to_json(active_tx_);
+
+  const std::string path = config_dir_ + "/runtime.json";
+  std::ofstream out(path);
+  if (!out) {
+    std::cerr << "ECU " << ecu_id_ << ": failed to write runtime.json\n";
+    return;
+  }
+  out << j.dump(2);
+}
+
+void Ecu::set_runtime_model(int fd, const nlohmann::json& model) {
+  std::lock_guard lock(mu_);
+  if (!ui_by_fd(fd)) return;
+  apply_runtime_model(model);
+  save_runtime_model();
 }
 
 void Ecu::sync_app_rx_filters_locked() {
@@ -208,11 +356,10 @@ void Ecu::reset_bus_off() {
   can_.reset_bus_off();
 }
 
-bool Ecu::passes_condition(UiClient& ui, const nlohmann::json& payload) {
-  if (!ui.tx) return true;
-  const auto& cond = ui.tx->condition;
-  if (cond.contains("min_value_change") && !ui.last_payload.is_null()) {
-    const double old_v = ui.last_payload.value("value", 0.0);
+bool Ecu::passes_condition(const nlohmann::json& payload) {
+  const auto& cond = active_tx_.condition;
+  if (cond.contains("min_value_change") && !last_payload_.is_null()) {
+    const double old_v = last_payload_.value("value", 0.0);
     const double new_v = payload.value("value", 0.0);
     const double min_ch = cond["min_value_change"].get<double>();
     if (std::abs(new_v - old_v) < min_ch) return false;
@@ -286,60 +433,82 @@ void Ecu::on_can_frame(uint32_t can_id, const std::vector<uint8_t>& data) {
   }
 }
 
-void Ecu::stop_interval(UiClient& ui) {
-  ui.interval_stop = true;
-  if (ui.interval_thread.joinable()) ui.interval_thread.join();
-  ui.interval_stop = false;
+void Ecu::stop_process_interval() {
+  interval_stop_.store(true);
+  if (interval_thread_.joinable()) interval_thread_.join();
+  interval_stop_.store(false);
 }
 
-void Ecu::start_interval_locked(UiClient& ui) {
-  if (!ui.tx || ui.tx->schedule_mode != "interval") return;
-  if (ui.interval_thread.joinable()) return;
+void Ecu::restart_process_interval() {
+  stop_process_interval();
+  std::lock_guard lock(mu_);
+  start_process_interval_locked();
+}
 
-  const int ms = ui.tx->interval_ms;
-  const int fd = ui.fd;
-  ui.interval_thread = std::thread([this, fd, ms]() {
+void Ecu::start_process_interval_locked() {
+  if (active_tx_.schedule_mode != "interval") return;
+  if (interval_thread_.joinable()) return;
+
+  const int ms = active_tx_.interval_ms;
+  interval_thread_ = std::thread([this, ms]() {
     while (true) {
       std::this_thread::sleep_for(std::chrono::milliseconds(ms));
       nlohmann::json last;
       {
         std::lock_guard lock(mu_);
-        auto* u = ui_by_fd(fd);
-        if (!u || u->interval_stop) break;
-        if (u->last_payload.is_null()) continue;
-        last = u->last_payload;
+        if (interval_stop_.load()) break;
+        if (runtime_enabled_) {
+          last = make_runtime_payload(ms);
+        } else {
+          if (last_payload_.is_null()) continue;
+          last = last_payload_;
+        }
       }
       try {
-        publish(fd, last);
+        publish_to_bus(last, -1);
       } catch (...) {
       }
     }
   });
 }
 
-void Ecu::restart_interval(UiClient& ui) {
-  stop_interval(ui);
-  start_interval_locked(ui);
+nlohmann::json Ecu::make_runtime_payload(int interval_ms) {
+  const auto now = std::chrono::steady_clock::now();
+  double dt_ms = static_cast<double>(interval_ms);
+  if (runtime_last_tick_ != std::chrono::steady_clock::time_point{}) {
+    dt_ms = std::chrono::duration<double, std::milli>(now - runtime_last_tick_).count();
+  }
+  runtime_last_tick_ = now;
+
+  std::vector<double> values;
+  values.reserve(runtime_sensors_.size());
+  for (auto& sensor : runtime_sensors_) {
+    values.push_back(tick_runtime_sensor(sensor, dt_ms, rng_));
+  }
+
+  double computed = aggregate_values(values, runtime_formula_);
+  if (runtime_formula_ == "custom") {
+    computed = aggregate_values(values, "avg");
+  }
+  const double tx = computed * runtime_scale_ + runtime_offset_;
+  return nlohmann::json{{"type", "ecu"}, {"value", tx}};
 }
 
 void Ecu::stage_payload(int fd, const nlohmann::json& body) {
   nlohmann::json payload = body.contains("payload") ? body["payload"] : body;
   std::lock_guard lock(mu_);
-  auto* ui = ui_by_fd(fd);
-  if (!ui) throw std::runtime_error("UI client not found");
-  ui->last_payload = std::move(payload);
+  if (!ui_by_fd(fd)) throw std::runtime_error("UI client not found");
+  last_payload_ = std::move(payload);
 }
 
-void Ecu::publish(int fd, const nlohmann::json& body) {
+void Ecu::publish_to_bus(const nlohmann::json& body, int notify_fd) {
   nlohmann::json payload = body.contains("payload") ? body["payload"] : body;
 
   TxProfile tx;
   {
     std::lock_guard lock(mu_);
-    auto* ui = ui_by_fd(fd);
-    if (!ui || !ui->tx) throw std::runtime_error("TX profile not configured");
-    if (!passes_condition(*ui, payload)) return;
-    tx = *ui->tx;
+    if (!passes_condition(payload)) return;
+    tx = active_tx_;
   }
 
   if (body.contains("can_id")) {
@@ -367,15 +536,19 @@ void Ecu::publish(int fd, const nlohmann::json& body) {
 
   {
     std::lock_guard lock(mu_);
-    auto* ui = ui_by_fd(fd);
-    if (ui) {
-      ui->last_payload = tx_payload;
-      send_to_fd(fd, {{"type", "sent"},
-                      {"via", nlohmann::json::array({"can"})},
-                      {"can_id", tx.can_id},
-                      {"payload", tx_payload}});
+    last_payload_ = tx_payload;
+    if (notify_fd >= 0 && ui_by_fd(notify_fd)) {
+      send_to_fd(notify_fd, {{"type", "sent"},
+                             {"via", nlohmann::json::array({"can"})},
+                             {"can_id", tx.can_id},
+                             {"payload", tx_payload}});
     }
   }
 
   std::cerr << "ECU " << ecu_id_ << ": TX " << id_buf << " (" << data.size() << " bytes)\n";
+}
+
+void Ecu::publish(int fd, const nlohmann::json& body) {
+  if (!ui_by_fd(fd)) throw std::runtime_error("UI client not found");
+  publish_to_bus(body, fd);
 }

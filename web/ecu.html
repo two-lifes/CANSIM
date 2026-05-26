@@ -4,12 +4,12 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>LinuxCAN — ECU</title>
-  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="styles.css?v=20260526-ecu-readable">
 </head>
 <body class="ecu-page">
   <div class="win win-wide">
     <div class="titlebar">
-      <span class="app-name">LinuxCAN — ECU <span data-el="titleEcuId">…</span></span>
+      <span class="app-name">LinuxCAN — ECU <span class="ecu-color-dot" data-el="ecuColorDot"></span><span data-el="titleEcuId">…</span></span>
       <span class="win-btns">
         <span class="win-btn">—</span>
         <span class="win-btn">□</span>
@@ -22,62 +22,77 @@
       <fieldset class="group ecu-block">
         <legend>Блок управления (ECU)</legend>
 
-        <div class="ecu-readout">
-          <div class="readout-row">
-            <span>Вычислено</span>
-            <span class="readout-value" data-el="ecuComputed">—</span>
-          </div>
-          <div class="readout-row readout-tx">
-            <span>На CAN (TX value)</span>
-            <span class="readout-value" data-el="ecuTxValue">—</span>
-          </div>
-        </div>
+        <div class="ecu-main-grid">
+          <div class="ecu-live-panel">
+            <div class="panel-caption">Живые значения</div>
+            <div class="ecu-readout">
+              <div class="readout-row">
+                <span>Вычислено внутри ECU</span>
+                <span class="readout-value" data-el="ecuComputed">—</span>
+              </div>
+              <div class="readout-row readout-tx">
+                <span>Значение в CAN TX</span>
+                <span class="readout-value" data-el="ecuTxValue">—</span>
+              </div>
+            </div>
 
-        <div class="ecu-inputs-wrap">
-          <div class="ecu-inputs-title">Входы</div>
-          <div class="ecu-inputs" data-el="ecuInputs"></div>
-        </div>
+            <div class="ecu-inputs-wrap">
+              <div class="ecu-inputs-title">Входы от подключённых датчиков</div>
+              <div class="ecu-inputs" data-el="ecuInputs"></div>
+            </div>
+          </div>
 
-        <div class="ecu-params">
-          <label class="ecu-row">
-            <span>Формула</span>
-            <select data-el="ecuFormula"></select>
-          </label>
-          <label class="ecu-row" data-el="ecuFormulaCustomRow">
-            <span>Выражение</span>
-            <input type="text" data-el="ecuFormulaCustom" class="mono" />
-          </label>
-          <label class="ecu-row">
-            <span>Scale</span>
-            <input type="number" step="0.1" data-el="ecuScale" />
-          </label>
-          <label class="ecu-row">
-            <span>Offset</span>
-            <input type="number" step="0.1" data-el="ecuOffset" />
-          </label>
-          <label class="ecu-row">
-            <span>TX CAN ID</span>
-            <input type="text" data-el="ecuTxId" class="mono" />
-          </label>
-          <label class="ecu-row">
-            <span>Режим TX</span>
-            <select data-el="ecuTxMode">
-              <option value="interval">Периодически</option>
-              <option value="manual">Вручную</option>
-            </select>
-          </label>
-          <label class="ecu-row">
-            <span>Период TX (мс)</span>
-            <input type="number" step="50" min="50" data-el="ecuTxInterval" />
-          </label>
-        </div>
-        <div class="btn-row">
-          <button type="button" class="primary" data-el="ecuTxNow">TX сейчас</button>
+          <div class="ecu-config-panel">
+            <div class="panel-caption">Расчёт и передача</div>
+            <div class="ecu-params">
+              <label class="ecu-row">
+                <span>Формула</span>
+                <select data-el="ecuFormula"></select>
+              </label>
+              <label class="ecu-row" data-el="ecuFormulaCustomRow">
+                <span>Выражение</span>
+                <input type="text" data-el="ecuFormulaCustom" class="mono" />
+              </label>
+              <label class="ecu-row">
+                <span>Scale</span>
+                <input type="number" step="0.1" data-el="ecuScale" />
+              </label>
+              <label class="ecu-row">
+                <span>Offset</span>
+                <input type="number" step="0.1" data-el="ecuOffset" />
+              </label>
+              <label class="ecu-row">
+                <span>TX CAN ID</span>
+                <input type="text" data-el="ecuTxId" class="mono" />
+              </label>
+              <label class="ecu-row">
+                <span>Метрика TX</span>
+                <select data-el="ecuTxMetric"></select>
+              </label>
+              <label class="ecu-row">
+                <span>Режим TX</span>
+                <select data-el="ecuTxMode">
+                  <option value="interval">Периодически</option>
+                  <option value="manual">Вручную</option>
+                </select>
+              </label>
+              <label class="ecu-row">
+                <span>Период TX</span>
+                <input type="number" step="50" min="50" data-el="ecuTxInterval" />
+              </label>
+            </div>
+            <div class="btn-row ecu-action-row">
+              <button type="button" class="primary" data-el="ecuTxNow">Отправить TX сейчас</button>
+            </div>
+          </div>
         </div>
       </fieldset>
 
       <fieldset class="group bus-rx-block">
         <legend>Шина — RX</legend>
+        <div class="rx-filter-head">
+          <span>CAN ID</span><span>Имя сигнала</span><span>Формат</span><span></span>
+        </div>
         <div class="rx-filter-table" data-el="busRxFilters"></div>
         <div class="btn-row rx-btn-row">
           <button type="button" data-el="busRxAdd">Добавить фильтр</button>
@@ -141,7 +156,7 @@
         <div class="wiring-cols">
           <!-- Подключённые датчики (с выходами) -->
           <fieldset class="group sensors-connected">
-            <legend>Подключённые датчики</legend>
+            <legend>Подключённые датчики → входы ECU</legend>
             <div data-el="connectedList" class="connected-list"></div>
           </fieldset>
 
@@ -162,11 +177,16 @@
       <span class="status-text err" data-el="stText">Нет связи</span>
       <span class="sep"></span>
       <span class="hint" data-el="ecuInfo"></span>
+      <span class="sep"></span>
+      <label class="auto-reconnect-toggle" title="Автоматически переподключать страницу к ECU после перезапуска">
+        <input type="checkbox" data-el="autoReconnect" checked>
+        <span>Автоперезапуск</span>
+      </label>
     </div>
   </div>
 
   <script type="module">
-    import { bootEcuApp } from "./ecu-app.js?v=20260526";
+    import { bootEcuApp } from "./ecu-app.js?v=20260526-auto-reconnect";
     bootEcuApp(document);
   </script>
 </body>

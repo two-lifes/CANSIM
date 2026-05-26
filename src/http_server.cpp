@@ -296,6 +296,10 @@ void HttpServer::ws_loop(int fd) {
         if (!registered) throw std::runtime_error("Register first");
         ecu_.stage_payload(fd, data.value("payload", nlohmann::json::object()));
         ws_send_text(fd, R"({"type":"ok"})");
+      } else if (type == "runtime_model") {
+        if (!registered) throw std::runtime_error("Register first");
+        ecu_.set_runtime_model(fd, data.value("model", nlohmann::json::object()));
+        ws_send_text(fd, R"({"type":"ok"})");
       } else if (type == "reset_bus_off") {
         if (!registered) throw std::runtime_error("Register first");
         ecu_.reset_bus_off();
@@ -339,6 +343,7 @@ bool HttpServer::serve_ecu_config(int fd) const {
   std::ostringstream resp;
   resp << "HTTP/1.1 200 OK\r\n"
        << "Content-Type: application/json\r\n"
+       << "Access-Control-Allow-Origin: *\r\n"
        << "Content-Length: " << body.size() << "\r\n"
        << "Connection: close\r\n\r\n"
        << body;
@@ -353,6 +358,7 @@ bool HttpServer::serve_network(int fd) const {
   std::ostringstream resp;
   resp << "HTTP/1.1 200 OK\r\n"
        << "Content-Type: application/json\r\n"
+       << "Access-Control-Allow-Origin: *\r\n"
        << "Content-Length: " << body.size() << "\r\n"
        << "Connection: close\r\n\r\n"
        << body;
@@ -391,6 +397,7 @@ bool HttpServer::serve_http(int fd, const std::string& request) {
   std::ostringstream resp;
   resp << "HTTP/1.1 200 OK\r\n"
        << "Content-Type: " << mime_type(file_path) << "\r\n"
+       << "Access-Control-Allow-Origin: *\r\n"
        << "Content-Length: " << content.size() << "\r\n"
        << "Connection: close\r\n\r\n"
        << content;

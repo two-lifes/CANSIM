@@ -69,6 +69,7 @@ TxProfile TxProfile::from_json(const json& j) {
   if (j.contains("can_interface")) p.can_interface = j["can_interface"].get<std::string>();
   p.can_id = parse_can_id(j, "can_id", 0x100);
   if (j.contains("encoding")) p.encoding = j["encoding"].get<std::string>();
+  if (j.contains("metric")) p.metric = j["metric"].get<std::string>();
   if (j.contains("schedule") && j["schedule"].is_object()) {
     const auto& s = j["schedule"];
     if (s.contains("mode")) p.schedule_mode = s["mode"].get<std::string>();

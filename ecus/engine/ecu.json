@@ -3,7 +3,7 @@
   "port": 8765,
   "page": "ecu.html",
   "can": "vcan0",
-  "tx": { "can_id": "0x100", "encoding": "float32" },
+  "tx": { "can_id": "0x100", "encoding": "float32", "metric": "temperature_c" },
   "rx": {
     "filters": [
       { "can_id": "0x200", "encoding": "float32", "label": "gateway_value" },

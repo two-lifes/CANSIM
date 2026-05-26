@@ -1,4 +1,5 @@
-import { BrokerClient, setStatus } from "./common.js";
+import { BrokerClient, readAutoReconnect, setStatus, writeAutoReconnect } from "./common.js";
+import { ecuPastelColor, ecuStrokeColor, formatMetricValue, metricById, normalizeMetricValue } from "./metrics.js";
 
 const els = {
   stDot: document.getElementById("busStatusDot"),
@@ -8,17 +9,18 @@ const els = {
   frameCount: document.getElementById("frameCount"),
   lastCanId: document.getElementById("lastCanId"),
   monitorEcu: document.getElementById("monitorEcu"),
+  autoReconnect: document.getElementById("autoReconnect"),
   clearLog: document.getElementById("clearLog"),
   pauseLog: document.getElementById("pauseLog"),
-  graphMetric: document.getElementById("graphMetric"),
   graphWindow: document.getElementById("graphWindow"),
   graphScale: document.getElementById("graphScale"),
   graphNow: document.getElementById("graphNow"),
   graphMax: document.getElementById("graphMax"),
   graphYMax: document.getElementById("graphYMax"),
+  graphYMin: document.getElementById("graphYMin"),
   graphLegend: document.getElementById("graphLegend"),
-  trafficGraphLine: document.getElementById("trafficGraphLine"),
-  trafficGraphFill: document.getElementById("trafficGraphFill"),
+  graphSeriesSelector: document.getElementById("graphSeriesSelector"),
+  trafficGraphSeries: document.getElementById("trafficGraphSeries"),
   bitsWinner: document.getElementById("bitsWinner"),
   bitsId: document.getElementById("bitsId"),
   bitsDlc: document.getElementById("bitsDlc"),
@@ -40,7 +42,14 @@ let frameCount = 0;
 let bitLevelMonitorActive = false;
 let runtimeRefreshBusy = false;
 let graphEvents = [];
-let graphTimer = null;
+let graphRenderPending = false;
+let client = null;
+let reconnectTimer = null;
+let reconnectAttempt = 0;
+let connectGeneration = 0;
+let autoReconnect = readAutoReconnect();
+const selectedGraphEcus = new Set();
+let graphSelectionInitialized = false;
 
 function canIdText(value) {
   if (typeof value === "string") return value;
@@ -57,25 +66,60 @@ function valueText(payload) {
 function renderTopology() {
   els.ecuList.innerHTML = "";
 
-  network.forEach((ecu, idx) => {
+  network.forEach((ecu) => {
+    if (!graphSelectionInitialized) selectedGraphEcus.add(ecu.id);
     const card = document.createElement("div");
     card.className = "bus-ecu-card";
     card.dataset.ecuId = ecu.id;
+    card.style.borderLeft = `6px solid ${ecuPastelColor(ecu.id)}`;
     const filters = (ecu.rx?.filters || [])
       .map((f) => `${canIdText(f.can_id)}${f.label ? ` ${f.label}` : ""}`)
       .join("<br>") || "—";
+    const metric = metricById(ecu.tx?.metric);
     const href = `http://${location.hostname || "127.0.0.1"}:${ecu.port}/${ecu.page || "ecu.html"}`;
     card.innerHTML = `
       <div class="bus-ecu-card-head">
-        <b>${ecu.id}</b>
+        <b><span class="ecu-color-dot" style="background:${ecuPastelColor(ecu.id)}"></span>${ecu.id}</b>
         <a href="${href}" target="_blank">open</a>
       </div>
       <div class="mono">port :${ecu.port}</div>
       <div>TX: <span class="mono">${canIdText(ecu.tx?.can_id)}</span></div>
+      <div>Metric: <span class="mono">${metric.label}${metric.unit ? ` [${metric.unit}]` : ""}</span></div>
       <div>RX:<br><span class="mono">${filters}</span></div>
     `;
     els.ecuList.appendChild(card);
   });
+  graphSelectionInitialized = true;
+  renderGraphSeriesSelector();
+}
+
+function renderGraphSeriesSelector() {
+  els.graphSeriesSelector.innerHTML = "";
+  for (const ecu of network) {
+    const metric = metricById(ecu.tx?.metric);
+    const label = document.createElement("label");
+    label.className = "graph-series-check";
+    label.style.borderColor = ecuPastelColor(ecu.id);
+
+    const input = document.createElement("input");
+    input.type = "checkbox";
+    input.checked = selectedGraphEcus.has(ecu.id);
+    input.addEventListener("change", () => {
+      if (input.checked) selectedGraphEcus.add(ecu.id);
+      else selectedGraphEcus.delete(ecu.id);
+      renderTrafficGraph();
+    });
+
+    const swatch = document.createElement("span");
+    swatch.className = "graph-series-swatch";
+    swatch.style.background = ecuPastelColor(ecu.id);
+
+    const text = document.createElement("span");
+    text.textContent = `${ecu.id} · ${metric.label}${metric.unit ? ` (${metric.unit})` : ""}`;
+
+    label.append(input, swatch, text);
+    els.graphSeriesSelector.appendChild(label);
+  }
 }
 
 function sameJson(a, b) {
@@ -84,9 +128,13 @@ function sameJson(a, b) {
 
 function mergeRuntimeConfig(ecu, cfg) {
   let changed = false;
-  if (cfg?.tx && !sameJson(ecu.tx, cfg.tx)) {
-    ecu.tx = cfg.tx;
-    changed = true;
+  if (cfg?.tx) {
+    const nextTx = { ...cfg.tx };
+    if (!nextTx.metric && ecu.tx?.metric) nextTx.metric = ecu.tx.metric;
+    if (!sameJson(ecu.tx, nextTx)) {
+      ecu.tx = nextTx;
+      changed = true;
+    }
   }
   if (cfg?.rx && !sameJson(ecu.rx, cfg.rx)) {
     ecu.rx = cfg.rx;
@@ -152,14 +200,33 @@ function markDelivered(delivered) {
 
 function recordGraphFrame(delivered) {
   const frame = delivered?.frame || {};
-  const bitLength = (delivered?.stuffed || "").length + (delivered?.trailer || "").length;
+  const ecu = network.find((item) => item.id === delivered?.winner);
+  const value = decodeFloat32(frame.data || []);
   graphEvents.push({
     t: performance.now(),
+    ecuId: delivered?.winner || "",
     id: canIdText(frame.id),
-    bits: bitLength || 0,
-    errors: (delivered?.errors || []).length,
+    value,
+    metric: ecu?.tx?.metric || "percent",
   });
   trimGraphEvents();
+  scheduleTrafficGraphRender();
+}
+
+function scheduleTrafficGraphRender() {
+  if (graphRenderPending) return;
+  graphRenderPending = true;
+  requestAnimationFrame(() => {
+    graphRenderPending = false;
+    renderTrafficGraph();
+  });
+}
+
+function decodeFloat32(bytes) {
+  if (!bytes || bytes.length < 4) return NaN;
+  const view = new DataView(new ArrayBuffer(4));
+  for (let i = 0; i < 4; i += 1) view.setUint8(i, Number(bytes[i]) & 0xff);
+  return view.getFloat32(0, true);
 }
 
 function trimGraphEvents() {
@@ -168,63 +235,93 @@ function trimGraphEvents() {
   graphEvents = graphEvents.filter((ev) => ev.t >= cutoff);
 }
 
-function graphValueForEvent(ev, metric) {
-  if (metric === "bits") return ev.bits;
-  if (metric === "errors") return ev.errors;
-  return 1;
-}
-
 function renderTrafficGraph() {
-  if (!els.trafficGraphLine) return;
+  if (!els.trafficGraphSeries) return;
   trimGraphEvents();
 
-  const metric = els.graphMetric.value;
   const windowSec = Number(els.graphWindow.value || 10);
   const windowMs = windowSec * 1000;
-  const bucketCount = 60;
-  const bucketMs = windowMs / bucketCount;
   const now = performance.now();
-  const buckets = Array(bucketCount).fill(0);
+  const selected = network.filter((ecu) => selectedGraphEcus.has(ecu.id));
+  const selectedIds = new Set(selected.map((ecu) => ecu.id));
+  const selectedMetricIds = new Set(selected.map((ecu) => metricById(ecu.tx?.metric).id));
+  const useMetricScale = els.graphScale.value === "auto" && selectedMetricIds.size === 1;
+  const visibleEvents = graphEvents.filter((ev) => (
+    selectedIds.has(ev.ecuId) && Number.isFinite(ev.value) && now - ev.t <= windowMs
+  ));
+  const scale = makeGraphScale(selected, visibleEvents, useMetricScale);
 
-  for (const ev of graphEvents) {
-    const age = now - ev.t;
-    if (age < 0 || age > windowMs) continue;
-    const idx = bucketCount - 1 - Math.floor(age / bucketMs);
-    if (idx >= 0 && idx < bucketCount) buckets[idx] += graphValueForEvent(ev, metric);
+  els.trafficGraphSeries.innerHTML = "";
+  const legend = [];
+
+  for (const ecu of selected) {
+    const metric = metricById(ecu.tx?.metric);
+    const samples = visibleEvents.filter((ev) => ev.ecuId === ecu.id).sort((a, b) => a.t - b.t);
+    const points = samples.map((ev) => {
+      const age = now - ev.t;
+      const x = Math.max(0, Math.min(100, 100 - (age / windowMs) * 100));
+      const plotted = useMetricScale ? scaleValue(ev.value, scale) : normalizeMetricValue(ev.value, metric.id);
+      const pct = plotted;
+      const y = 100 - Math.max(0, Math.min(100, pct));
+      return [x, y, ev.value];
+    });
+
+    const line = points
+      .map(([x, y], idx) => `${idx === 0 ? "M" : "L"}${x.toFixed(2)},${y.toFixed(2)}`)
+      .join(" ");
+    if (!line) continue;
+
+    const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    path.setAttribute("d", line);
+    path.setAttribute("class", "graph-line-series");
+    path.style.stroke = ecuStrokeColor(ecu.id);
+    els.trafficGraphSeries.appendChild(path);
+
+    const lastPoint = points[points.length - 1];
+    const lastValue = lastPoint[2];
+    legend.push(`<span><i style="background:${ecuPastelColor(ecu.id)}"></i>${ecu.id}: ${formatMetricValue(lastValue, metric.id)}</span>`);
   }
 
-  const perSecond = buckets.map((value) => value / (bucketMs / 1000));
-  const maxValue = Math.max(1, ...perSecond);
-  const fixedMax = metric === "bits" ? 10000 : metric === "errors" ? 10 : 50;
-  const yMax = els.graphScale.value === "fixed" ? fixedMax : maxValue;
-  const points = perSecond.map((value, idx) => {
-    const x = (idx / (bucketCount - 1)) * 100;
-    const y = 100 - Math.min(100, (value / yMax) * 100);
-    return [x, y, value];
-  });
-
-  const line = points.map(([x, y], idx) => `${idx === 0 ? "M" : "L"}${x.toFixed(2)},${y.toFixed(2)}`).join(" ");
-  const fill = `${line} L100,100 L0,100 Z`;
-  els.trafficGraphLine.setAttribute("d", line);
-  els.trafficGraphFill.setAttribute("d", fill);
-
-  const latest = perSecond[perSecond.length - 1] || 0;
-  els.graphNow.textContent = formatGraphValue(latest, metric);
-  els.graphMax.textContent = formatGraphValue(maxValue, metric);
-  els.graphYMax.textContent = formatGraphValue(yMax, metric);
-  els.graphLegend.textContent = graphLegendText(metric);
+  els.graphNow.textContent = String(selected.length);
+  els.graphMax.textContent = useMetricScale ? `${scale.minText}..${scale.maxText}` : "0..100%";
+  els.graphYMax.textContent = useMetricScale ? scale.maxText : "100%";
+  els.graphYMin.textContent = useMetricScale ? scale.minText : "0";
+  els.graphLegend.innerHTML = legend.length
+    ? legend.join("")
+    : "Выбери ECU галочками справа/сверху, чтобы увидеть данные.";
 }
 
-function formatGraphValue(value, metric) {
-  if (metric === "bits") return `${Math.round(value)} bit/s`;
-  if (metric === "errors") return `${value.toFixed(1)} err/s`;
-  return `${value.toFixed(1)} fps`;
+function makeGraphScale(selected, visibleEvents, useMetricScale) {
+  if (!useMetricScale) return { min: 0, max: 100, minText: "0", maxText: "100%" };
+
+  const metric = metricById(selected[0]?.tx?.metric);
+  const values = visibleEvents.map((ev) => ev.value).filter(Number.isFinite);
+  let min = values.length ? Math.min(...values) : metric.min;
+  let max = values.length ? Math.max(...values) : metric.max;
+  if (min === max) {
+    const fallbackSpan = Math.max(1, Math.abs(min) * 0.2, (metric.max - metric.min) * 0.1);
+    min -= fallbackSpan / 2;
+    max += fallbackSpan / 2;
+  }
+  const pad = (max - min) * 0.1;
+  min -= pad;
+  max += pad;
+  return {
+    min,
+    max,
+    minText: formatAxisValue(min, metric.id),
+    maxText: formatAxisValue(max, metric.id),
+  };
 }
 
-function graphLegendText(metric) {
-  if (metric === "bits") return "Суммарная битовая нагрузка успешных кадров на шине.";
-  if (metric === "errors") return "Частота ошибок кадра: ACK/CRC/stuff/bit.";
-  return "Частота доставленных CAN-кадров. Рост активности поднимает линию.";
+function scaleValue(value, scale) {
+  return ((value - scale.min) / Math.max(1e-9, scale.max - scale.min)) * 100;
+}
+
+function formatAxisValue(value, metricId) {
+  const metric = metricById(metricId);
+  const rounded = Math.abs(value) >= 100 ? value.toFixed(0) : value.toFixed(1);
+  return metric.unit ? `${rounded} ${metric.unit}` : rounded;
 }
 
 function addLogFrame(msg, { mark = true } = {}) {
@@ -383,8 +480,27 @@ async function refreshRuntimeNetwork() {
   }
 }
 
-async function boot() {
-  const client = new BrokerClient();
+function scheduleReconnect(delayMs) {
+  if (!autoReconnect || reconnectTimer) return;
+  const delay = delayMs ?? Math.min(10000, 700 * 2 ** Math.min(reconnectAttempt, 4));
+  reconnectAttempt += 1;
+  setStatus(els.stDot, els.stText, false, `Переподключение через ${(delay / 1000).toFixed(1)} c`);
+  reconnectTimer = setTimeout(() => {
+    reconnectTimer = null;
+    connectMonitor().catch(handleConnectFailure);
+  }, delay);
+}
+
+function handleConnectFailure(error) {
+  setStatus(els.stDot, els.stText, false, error?.message || "Нет связи");
+  scheduleReconnect();
+}
+
+async function connectMonitor() {
+  clearTimeout(reconnectTimer);
+  reconnectTimer = null;
+  const generation = ++connectGeneration;
+  client = new BrokerClient();
   client.on("bus_frame", (msg) => addLogFrame(msg, { mark: !bitLevelMonitorActive }));
   client.on("message", addLogFrame);
   client.on("bus_delivered", (msg) => {
@@ -395,9 +511,15 @@ async function boot() {
   });
   client.on("controller_state", (msg) => upsertCtl(msg.data));
   client.on("error", (msg) => setStatus(els.stDot, els.stText, false, msg.message));
-  client.on("close", () => setStatus(els.stDot, els.stText, false, "Отключено"));
+  client.on("close", ({ byApp } = {}) => {
+    if (generation !== connectGeneration || byApp) return;
+    setStatus(els.stDot, els.stText, false, autoReconnect ? "Отключено, переподключение…" : "Отключено");
+    scheduleReconnect();
+  });
 
   const registered = await client.connect();
+  if (generation !== connectGeneration) return;
+  reconnectAttempt = 0;
   setStatus(els.stDot, els.stText, true, "Мониторинг");
   els.monitorEcu.textContent = registered.ecu_id;
   upsertCtl(registered.controller);
@@ -407,12 +529,30 @@ async function boot() {
     .catch(() => registered.network || []);
   renderTopology();
   loadInitialControllerStates();
+}
+
+async function boot() {
+  if (els.autoReconnect) {
+    els.autoReconnect.checked = autoReconnect;
+    els.autoReconnect.addEventListener("change", () => {
+      autoReconnect = els.autoReconnect.checked;
+      writeAutoReconnect(autoReconnect);
+      if (!autoReconnect) {
+        clearTimeout(reconnectTimer);
+        reconnectTimer = null;
+        setStatus(els.stDot, els.stText, client?.isOpen(), client?.isOpen() ? "Мониторинг" : "Отключено");
+      } else if (!client?.isOpen()) {
+        scheduleReconnect(0);
+      }
+    });
+  }
+
   setInterval(refreshRuntimeNetwork, 1000);
-  graphTimer = setInterval(renderTrafficGraph, 250);
-  [els.graphMetric, els.graphWindow, els.graphScale].forEach((el) => {
+  [els.graphWindow, els.graphScale].forEach((el) => {
     el.addEventListener("change", renderTrafficGraph);
   });
   renderTrafficGraph();
+  await connectMonitor();
 }
 
 els.clearLog.onclick = () => {
@@ -427,4 +567,4 @@ els.pauseLog.onclick = () => {
   els.pauseLog.textContent = paused ? "Продолжить" : "Пауза";
 };
 
-boot().catch((e) => setStatus(els.stDot, els.stText, false, e.message));
+boot().catch(handleConnectFailure);

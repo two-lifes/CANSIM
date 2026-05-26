@@ -11,11 +11,12 @@
  * Связи: датчики тикают → пишут rawValue → modifier → inputValue
  *        ECU агрегирует inputValue → computed → transform → txValue → CAN
  */
-import { BrokerClient, setStatus } from "./common.js";
+import { BrokerClient, readAutoReconnect, setStatus, writeAutoReconnect } from "./common.js";
 import { listSensorTypes, getSensorType } from "./sensors/index.js";
 import { SensorInstance } from "./sensor-instance.js";
 import { FORMULAS, aggregate, transformTx } from "./ecu-logic.js";
 import { Wiring } from "./wiring.js";
+import { TX_METRICS, ecuPastelColor, metricById } from "./metrics.js";
 
 const NUMBER_FORMAT = new Intl.NumberFormat("ru-RU", {
   maximumFractionDigits: 2,
@@ -44,14 +45,22 @@ class EcuApp {
     this.txId = "0x100";
     this.txMode = "manual";
     this.txIntervalMs = 5000;
+    this.txMetric = "percent";
     this.rxFilters = [];
     this.txTimer = null;
     this.stageTimer = null;
+    this.runtimeModelTimer = null;
+    this.reconnectTimer = null;
+    this.reconnectAttempt = 0;
+    this.connectGeneration = 0;
+    this.autoReconnect = readAutoReconnect();
     this.storageKey = null;
     this.saveTimer = null;
     this.persistenceReady = false;
     this.computed = 0;
     this.txValue = 0;
+    this.lastStageValue = null;
+    this.lastStageAt = 0;
 
     this.els = this._collectEls();
     this._initWiring();
@@ -59,7 +68,7 @@ class EcuApp {
     this._renderConnected();
     this._renderEcuInputs();
     this._wireControls();
-    this._connectBackend().catch((e) => setStatus(this.els.stDot, this.els.stText, false, e.message));
+    this._connectBackend().catch((e) => this._handleConnectFailure(e));
   }
 
   // ---------- DOM ----------
@@ -67,6 +76,7 @@ class EcuApp {
   _collectEls() {
     return {
       titleEcu: this.root.querySelector("[data-el=titleEcuId]"),
+      ecuColorDot: this.root.querySelector("[data-el=ecuColorDot]"),
       ecuComputed: this.root.querySelector("[data-el=ecuComputed]"),
       ecuTxValue: this.root.querySelector("[data-el=ecuTxValue]"),
       ecuFormula: this.root.querySelector("[data-el=ecuFormula]"),
@@ -75,6 +85,7 @@ class EcuApp {
       ecuScale: this.root.querySelector("[data-el=ecuScale]"),
       ecuOffset: this.root.querySelector("[data-el=ecuOffset]"),
       ecuTxId: this.root.querySelector("[data-el=ecuTxId]"),
+      ecuTxMetric: this.root.querySelector("[data-el=ecuTxMetric]"),
       ecuTxMode: this.root.querySelector("[data-el=ecuTxMode]"),
       ecuTxInterval: this.root.querySelector("[data-el=ecuTxInterval]"),
       ecuTxNow: this.root.querySelector("[data-el=ecuTxNow]"),
@@ -101,6 +112,7 @@ class EcuApp {
       stDot: this.root.querySelector("[data-el=stDot]"),
       stText: this.root.querySelector("[data-el=stText]"),
       ecuInfo: this.root.querySelector("[data-el=ecuInfo]"),
+      autoReconnect: this.root.querySelector("[data-el=autoReconnect]"),
     };
   }
 
@@ -146,6 +158,7 @@ class EcuApp {
     this._renderConnected();
     this._renderEcuInputs();
     if (this.persistenceReady) this._restartTxTimer();
+    this._sendRuntimeModelSoon();
     if (shouldSave) this._saveStateSoon();
   }
 
@@ -157,6 +170,7 @@ class EcuApp {
     this._renderConnected();
     this._renderEcuInputs();
     if (this.persistenceReady) this._restartTxTimer();
+    this._sendRuntimeModelSoon();
     this._saveStateSoon();
   }
 
@@ -260,6 +274,7 @@ class EcuApp {
     input.addEventListener("change", () => {
       const v = input.type === "number" || def.type === "select" ? Number(input.value) : input.value;
       sensor.updateSetting(def.key, v);
+      this._sendRuntimeModelSoon();
       this._saveStateSoon();
     });
     row.appendChild(input);
@@ -337,6 +352,21 @@ class EcuApp {
   _wireControls() {
     const els = this.els;
 
+    if (els.autoReconnect) {
+      els.autoReconnect.checked = this.autoReconnect;
+      els.autoReconnect.addEventListener("change", () => {
+        this.autoReconnect = els.autoReconnect.checked;
+        writeAutoReconnect(this.autoReconnect);
+        if (!this.autoReconnect) {
+          clearTimeout(this.reconnectTimer);
+          this.reconnectTimer = null;
+          setStatus(this.els.stDot, this.els.stText, this.client?.isOpen(), this.client?.isOpen() ? "На шине" : "Нет связи");
+        } else if (!this.client?.isOpen()) {
+          this._scheduleReconnect(0);
+        }
+      });
+    }
+
     els.ecuFormula.innerHTML = "";
     for (const f of FORMULAS) {
       const o = document.createElement("option");
@@ -349,6 +379,7 @@ class EcuApp {
       this.formula = els.ecuFormula.value;
       els.ecuFormulaCustomRow.style.display = this.formula === "custom" ? "" : "none";
       this._recompute();
+      this._sendRuntimeModelSoon();
       this._saveStateSoon();
     });
     els.ecuFormulaCustomRow.style.display = "none";
@@ -356,6 +387,7 @@ class EcuApp {
     els.ecuFormulaCustom.addEventListener("change", () => {
       this.customExpr = els.ecuFormulaCustom.value;
       this._recompute();
+      this._sendRuntimeModelSoon();
       this._saveStateSoon();
     });
 
@@ -363,12 +395,14 @@ class EcuApp {
     els.ecuScale.addEventListener("change", () => {
       this.scale = Number(els.ecuScale.value) || 1;
       this._recompute();
+      this._sendRuntimeModelSoon();
       this._saveStateSoon();
     });
     els.ecuOffset.value = this.offset;
     els.ecuOffset.addEventListener("change", () => {
       this.offset = Number(els.ecuOffset.value) || 0;
       this._recompute();
+      this._sendRuntimeModelSoon();
       this._saveStateSoon();
     });
 
@@ -376,6 +410,20 @@ class EcuApp {
     els.ecuTxId.addEventListener("change", () => {
       this.txId = els.ecuTxId.value.trim() || "0x100";
       this._applyTxConfig();
+      this._saveStateSoon();
+    });
+    els.ecuTxMetric.innerHTML = "";
+    for (const metric of TX_METRICS) {
+      const option = document.createElement("option");
+      option.value = metric.id;
+      option.textContent = `${metric.label}${metric.unit ? ` [${metric.unit}]` : ""}`;
+      els.ecuTxMetric.appendChild(option);
+    }
+    els.ecuTxMetric.value = this.txMetric;
+    els.ecuTxMetric.addEventListener("change", () => {
+      this.txMetric = els.ecuTxMetric.value;
+      this._applyTxConfig();
+      this._stagePayloadSoon();
       this._saveStateSoon();
     });
     els.ecuTxMode.value = this.txMode;
@@ -420,6 +468,7 @@ class EcuApp {
       this.txTimer = null;
     }
     this._applyTxConfig();
+    this._sendRuntimeModelSoon();
     this._stagePayloadSoon();
   }
 
@@ -429,6 +478,7 @@ class EcuApp {
       can_interface: "vcan0",
       can_id: this.txId,
       encoding: "float32",
+      metric: this.txMetric,
       schedule: { mode: this.txMode, interval_ms: this.txIntervalMs },
       pre_send: ["timestamp"],
     });
@@ -458,7 +508,35 @@ class EcuApp {
 
   _stagePayloadNow() {
     if (!this.client || this.txMode !== "interval") return;
+    this.lastStageValue = this.txValue;
+    this.lastStageAt = performance.now();
     this.client.stagePayload({ type: "ecu", value: this.txValue });
+  }
+
+  _runtimeModelPayload() {
+    return {
+      formula: this.formula,
+      customExpr: this.customExpr,
+      scale: this.scale,
+      offset: this.offset,
+      sensors: this.sensors.map((s) => ({
+        id: s.id,
+        typeId: s.type.id,
+        settings: s.settings,
+        tickMs: s.tickMs,
+      })),
+    };
+  }
+
+  _sendRuntimeModelSoon() {
+    if (!this.client) return;
+    clearTimeout(this.runtimeModelTimer);
+    this.runtimeModelTimer = setTimeout(() => this._sendRuntimeModelNow(), 40);
+  }
+
+  _sendRuntimeModelNow() {
+    if (!this.client) return;
+    this.client.send({ type: "runtime_model", model: this._runtimeModelPayload() });
   }
 
   // ---------- Persistence (per ECU; no live RX/CAN logs) ----------
@@ -476,6 +554,7 @@ class EcuApp {
       scale: this.scale,
       offset: this.offset,
       txId: this.txId,
+      txMetric: this.txMetric,
       txMode: this.txMode,
       txIntervalMs: this.txIntervalMs,
       rxFilters: this.rxFilters,
@@ -521,6 +600,7 @@ class EcuApp {
     this.scale = Number(data.scale ?? this.scale);
     this.offset = Number(data.offset ?? this.offset);
     this.txId = data.txId ?? this.txId;
+    this.txMetric = data.txMetric ?? this.txMetric;
     this.txMode = data.txMode ?? this.txMode;
     this.txIntervalMs = Number(data.txIntervalMs ?? this.txIntervalMs);
     if (Array.isArray(data.rxFilters)) {
@@ -554,6 +634,7 @@ class EcuApp {
     this.els.ecuScale.value = this.scale;
     this.els.ecuOffset.value = this.offset;
     this.els.ecuTxId.value = this.txId;
+    this.els.ecuTxMetric.value = metricById(this.txMetric).id;
     this.els.ecuTxMode.value = this.txMode;
     this.els.ecuTxInterval.value = this.txIntervalMs;
     this._renderBusRxConfig();
@@ -563,36 +644,73 @@ class EcuApp {
   // ---------- Подключение к C++ ECU (CAN) ----------
 
   async _connectBackend() {
-    this.client = new BrokerClient();
-    this.client.on("error", (m) => setStatus(this.els.stDot, this.els.stText, false, m.message));
-    this.client.on("close", () => setStatus(this.els.stDot, this.els.stText, false, "Нет связи"));
-    this.client.on("sent", () => setStatus(this.els.stDot, this.els.stText, true, "TX OK"));
-    this.client.on("message", (msg) => this._onBusRx(msg));
-    this.client.on("controller_state", (msg) => this._onControllerState(msg));
-    this.client.on("bus_delivered", (msg) => this._onBusDelivered(msg));
+    clearTimeout(this.reconnectTimer);
+    this.reconnectTimer = null;
+    const generation = ++this.connectGeneration;
+    const client = new BrokerClient();
+    this.client = client;
 
-    const msg = await this.client.connect();
+    client.on("error", (m) => setStatus(this.els.stDot, this.els.stText, false, m.message));
+    client.on("close", ({ byApp } = {}) => {
+      if (generation !== this.connectGeneration || byApp) return;
+      setStatus(this.els.stDot, this.els.stText, false, this.autoReconnect ? "Нет связи, переподключение…" : "Нет связи");
+      this._scheduleReconnect();
+    });
+    client.on("sent", () => setStatus(this.els.stDot, this.els.stText, true, "TX OK"));
+    client.on("message", (msg) => this._onBusRx(msg));
+    client.on("controller_state", (msg) => this._onControllerState(msg));
+    client.on("bus_delivered", (msg) => this._onBusDelivered(msg));
+
+    const msg = await client.connect();
+    if (generation !== this.connectGeneration) return;
+    this.reconnectAttempt = 0;
     setStatus(this.els.stDot, this.els.stText, true, "На шине");
 
     this.cfg = await fetch("/ecu-config.json").then((r) => r.json()).catch(() => msg);
-    if (this.cfg?.ecu_id) this.els.titleEcu.textContent = this.cfg.ecu_id;
+    if (this.cfg?.ecu_id) {
+      this.els.titleEcu.textContent = this.cfg.ecu_id;
+      if (this.els.ecuColorDot) this.els.ecuColorDot.style.background = ecuPastelColor(this.cfg.ecu_id);
+    }
     this._renderControllerState(this.cfg?.controller, this.cfg?.can_mode);
-    if (this.cfg?.tx?.can_id) {
+    if (!this.persistenceReady && this.cfg?.tx?.can_id) {
       this.txId = this.cfg.tx.can_id;
       this.els.ecuTxId.value = this.txId;
     }
-    this.rxFilters = this._normalizeRxFilters(this.cfg?.rx?.filters ?? []);
+    if (!this.persistenceReady && this.cfg?.tx?.metric) {
+      this.txMetric = this.cfg.tx.metric;
+      this.els.ecuTxMetric.value = metricById(this.txMetric).id;
+    }
+    if (!this.persistenceReady) this.rxFilters = this._normalizeRxFilters(this.cfg?.rx?.filters ?? []);
     this.els.ecuInfo.textContent = `${this.cfg?.ecu_id ?? msg.ecu_id} · ${this.cfg?.can_interface ?? "vcan0"}`;
     this._renderBusRxConfig();
 
-    this.storageKey = this._makeStorageKey();
-    this._restoreState();
-    this._syncControlsFromState();
-    this.persistenceReady = true;
+    if (!this.persistenceReady) {
+      this.storageKey = this._makeStorageKey();
+      this._restoreState();
+      this._syncControlsFromState();
+      this.persistenceReady = true;
+    }
 
     this._applyTxConfig();
     this._applyRxConfig();
+    this._sendRuntimeModelNow();
     this._restartTxTimer();
+  }
+
+  _handleConnectFailure(error) {
+    setStatus(this.els.stDot, this.els.stText, false, error?.message || "Нет связи");
+    this._scheduleReconnect();
+  }
+
+  _scheduleReconnect(delayMs) {
+    if (!this.autoReconnect || this.reconnectTimer) return;
+    const delay = delayMs ?? Math.min(10000, 700 * 2 ** Math.min(this.reconnectAttempt, 4));
+    this.reconnectAttempt += 1;
+    setStatus(this.els.stDot, this.els.stText, false, `Переподключение через ${(delay / 1000).toFixed(1)} c`);
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null;
+      this._connectBackend().catch((e) => this._handleConnectFailure(e));
+    }, delay);
   }
 
   _normalizeRxFilters(filters) {

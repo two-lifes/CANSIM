@@ -28,6 +28,7 @@ struct TxProfile {
   std::string can_interface = "vcan0";
   uint32_t can_id = 0x100;
   std::string encoding = "float32";
+  std::string metric = "percent";
   std::string schedule_mode = "manual";
   int interval_ms = 1000;
   nlohmann::json condition = nlohmann::json::object();

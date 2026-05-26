@@ -1,0 +1,29 @@
+{
+  "customExpr": "a + b",
+  "formula": "avg",
+  "offset": 0.0,
+  "scale": 1.0,
+  "sensors": [
+    {
+      "settings": {
+        "accelRpmPerSec": 600,
+        "decelRpmPerSec": 400,
+        "idle": 831.48,
+        "max": 6387.85,
+        "noiseRpm": 1,
+        "throttle": 0.5,
+        "wobbleRpm": 80
+      },
+      "typeId": "speed"
+    }
+  ],
+  "tx": {
+    "can_id": "0x300",
+    "encoding": "float32",
+    "metric": "speed_kmh",
+    "schedule": {
+      "interval_ms": 50,
+      "mode": "interval"
+    }
+  }
+}

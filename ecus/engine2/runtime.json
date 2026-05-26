@@ -1,0 +1,62 @@
+{
+  "customExpr": "a + b",
+  "formula": "avg",
+  "offset": 0.0,
+  "scale": 1.0,
+  "sensors": [
+    {
+      "settings": {
+        "max": 300.51,
+        "min": 20.12,
+        "noise": 100.5,
+        "periodMs": 8000
+      },
+      "typeId": "temperature"
+    },
+    {
+      "settings": {
+        "max": 3,
+        "min": -200,
+        "noise": 0.5,
+        "periodMs": 8000
+      },
+      "typeId": "temperature"
+    },
+    {
+      "settings": {
+        "max": 80.04,
+        "min": 19.63,
+        "noise": 0.5,
+        "periodMs": 8000
+      },
+      "typeId": "temperature"
+    },
+    {
+      "settings": {
+        "max": 79.33,
+        "min": 22.49,
+        "noise": 0.5,
+        "periodMs": 8000
+      },
+      "typeId": "temperature"
+    },
+    {
+      "settings": {
+        "max": 81.57,
+        "min": 22.07,
+        "noise": 0.5,
+        "periodMs": 8000
+      },
+      "typeId": "temperature"
+    }
+  ],
+  "tx": {
+    "can_id": "0x100",
+    "encoding": "float32",
+    "metric": "temperature_c",
+    "schedule": {
+      "interval_ms": 100,
+      "mode": "interval"
+    }
+  }
+}

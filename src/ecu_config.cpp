@@ -8,7 +8,7 @@
 static nlohmann::json builtin_defaults(const std::string& ecu_id) {
   if (ecu_id == "engine") {
     return {
-        {"tx", {{"can_id", "0x100"}, {"encoding", "float32"}}},
+        {"tx", {{"can_id", "0x100"}, {"encoding", "float32"}, {"metric", "temperature_c"}}},
         {"rx", {{"filters",
                  nlohmann::json::array({{{"can_id", "0x200"},
                                          {"encoding", "float32"},
@@ -20,7 +20,7 @@ static nlohmann::json builtin_defaults(const std::string& ecu_id) {
   }
   if (ecu_id == "dashboard") {
     return {
-        {"tx", {{"can_id", "0x300"}, {"encoding", "float32"}}},
+        {"tx", {{"can_id", "0x300"}, {"encoding", "float32"}, {"metric", "percent"}}},
         {"rx", {{"filters",
                  nlohmann::json::array({{{"can_id", "0x100"},
                                          {"encoding", "float32"},
@@ -29,7 +29,7 @@ static nlohmann::json builtin_defaults(const std::string& ecu_id) {
   }
   if (ecu_id == "gateway") {
     return {
-        {"tx", {{"can_id", "0x200"}, {"encoding", "float32"}}},
+        {"tx", {{"can_id", "0x200"}, {"encoding", "float32"}, {"metric", "pressure_bar"}}},
         {"rx", {{"filters",
                  nlohmann::json::array({{{"can_id", "0x100"},
                                          {"encoding", "float32"},
@@ -40,7 +40,7 @@ static nlohmann::json builtin_defaults(const std::string& ecu_id) {
     };
   }
   return {
-      {"tx", {{"can_id", "0x100"}, {"encoding", "float32"}}},
+      {"tx", {{"can_id", "0x100"}, {"encoding", "float32"}, {"metric", "percent"}}},
       {"rx", {{"filters", nlohmann::json::array()}}},
   };
 }
@@ -89,7 +89,7 @@ nlohmann::json EcuDefaults::to_json(int port, const std::string& page) const {
     if (!f.label.empty()) item["label"] = f.label;
     filters.push_back(item);
   }
-  nlohmann::json out = {{"tx", {{"can_id", hex_id(tx.can_id)}, {"encoding", tx.encoding}}},
+  nlohmann::json out = {{"tx", {{"can_id", hex_id(tx.can_id)}, {"encoding", tx.encoding}, {"metric", tx.metric}}},
                         {"rx", {{"filters", filters}}}};
   if (port > 0) out["port"] = port;
   if (!page.empty()) out["page"] = page;

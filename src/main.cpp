@@ -78,6 +78,7 @@ static int run_ecu(const std::string& ecu_id, const std::string& can_if,
 
   Ecu ecu(ecu_id, can_if);
   ecu.set_defaults(EcuDefaults::load(ecu_id, config_dir));
+  ecu.set_config_dir(config_dir);
   ecu.set_ui_endpoint(port, page);
   if (const char* net = std::getenv("LINUXCAN_NETWORK_JSON")) {
     try {
