@@ -1,0 +1,957 @@
+/* LinuxCAN — компактный UI в духе диагностики Windows 7 */
+:root {
+  --win-bg: #f0f0f0;
+  --desktop: #3a6ea5;
+  --title-top: #4a8fd4;
+  --title-bot: #2b6cb0;
+  --border: #8e8e8e;
+  --border-light: #dfdfdf;
+  --border-dark: #707070;
+  --text: #000;
+  --muted: #444;
+  --input-bg: #fff;
+  --btn-face: #e1e1e1;
+  --btn-hover: #e5f1fb;
+  --status-ok: #006600;
+  --status-err: #8b0000;
+  --placeholder-bg: #fafafa;
+  font-family: "Segoe UI", Tahoma, sans-serif;
+  font-size: 12px;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  min-height: 100%;
+  background: var(--desktop);
+  color: var(--text);
+}
+
+body {
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 12px;
+}
+
+/* Окно приложения — не на весь экран */
+.win {
+  width: 100%;
+  max-width: 360px;
+  border: 1px solid var(--border-dark);
+  box-shadow: 2px 2px 6px rgba(0, 0, 0, 0.35);
+  background: var(--win-bg);
+}
+
+.titlebar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 8px 5px;
+  background: linear-gradient(180deg, var(--title-top) 0%, var(--title-bot) 100%);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  user-select: none;
+}
+
+.titlebar .app-name { text-shadow: 0 1px 1px rgba(0, 0, 0, 0.3); }
+
+.titlebar .win-btns {
+  display: flex;
+  gap: 2px;
+  opacity: 0.85;
+  font-size: 10px;
+}
+
+.titlebar .win-btn {
+  width: 18px;
+  height: 16px;
+  line-height: 14px;
+  text-align: center;
+  background: linear-gradient(180deg, #5a9fd4 0%, #3d7eb8 100%);
+  border: 1px solid #2a5f8f;
+  border-radius: 0;
+  color: #fff;
+}
+
+.client {
+  padding: 8px 10px 6px;
+}
+
+/* Группа как в Win7 */
+fieldset.group {
+  margin: 0 0 8px;
+  padding: 8px 10px 10px;
+  border: 1px solid var(--border);
+  background: var(--win-bg);
+}
+
+fieldset.group legend {
+  padding: 0 4px;
+  font-size: 12px;
+  color: var(--text);
+}
+
+fieldset.placeholder {
+  background: var(--placeholder-bg);
+  opacity: 0.92;
+}
+
+fieldset.placeholder legend { color: var(--muted); }
+
+.hint {
+  margin: 0;
+  font-size: 11px;
+  color: var(--muted);
+  line-height: 1.35;
+}
+
+.row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 6px;
+}
+
+.row:last-child { margin-bottom: 0; }
+
+.row label {
+  flex: 0 0 72px;
+  font-size: 12px;
+  color: var(--text);
+}
+
+.row input,
+.row select {
+  flex: 1;
+  min-width: 0;
+}
+
+input, select, textarea {
+  font: 12px "Segoe UI", Tahoma, sans-serif;
+  border: 1px solid var(--border);
+  background: var(--input-bg);
+  color: var(--text);
+  padding: 3px 5px;
+}
+
+input:focus, select:focus, textarea:focus {
+  outline: 1px dotted #000;
+  outline-offset: -2px;
+}
+
+textarea {
+  width: 100%;
+  resize: none;
+  font-family: Consolas, "Courier New", monospace;
+  font-size: 11px;
+}
+
+textarea.compact { height: 56px; }
+
+button {
+  font: 12px "Segoe UI", Tahoma, sans-serif;
+  padding: 4px 14px;
+  min-height: 23px;
+  cursor: default;
+  background: linear-gradient(180deg, #fafafa 0%, var(--btn-face) 45%, #d8d8d8 100%);
+  border: 1px solid var(--border-dark);
+  color: var(--text);
+}
+
+button:hover { background: var(--btn-hover); border-color: #3c7fb1; }
+
+button:active {
+  background: #d0d0d0;
+  border-color: var(--border-dark);
+}
+
+button.primary { font-weight: 600; }
+
+.btn-row {
+  display: flex;
+  gap: 6px;
+  justify-content: flex-end;
+  margin-top: 8px;
+}
+
+.statusbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 8px;
+  border-top: 1px solid var(--border);
+  background: var(--win-bg);
+  font-size: 11px;
+  color: var(--muted);
+  min-height: 22px;
+}
+
+.statusbar .sep {
+  width: 1px;
+  height: 14px;
+  background: var(--border);
+}
+
+.status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  border: 1px solid var(--border-dark);
+  flex-shrink: 0;
+}
+
+.status-dot.ok { background: #7cfc00; }
+.status-dot.err { background: #ff6b6b; }
+
+.status-text.ok { color: var(--status-ok); }
+.status-text.err { color: var(--status-err); }
+
+/* Калькулятор — компактный */
+.calc-display {
+  text-align: right;
+  padding: 4px 6px;
+  margin-bottom: 6px;
+  border: 1px inset var(--border);
+  background: #fff;
+  font: 16px Consolas, monospace;
+  min-height: 26px;
+}
+
+.calc-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 3px;
+}
+
+.calc-grid button {
+  margin: 0;
+  padding: 4px 0;
+  min-height: 24px;
+  font-size: 12px;
+}
+
+.calc-grid button.eq {
+  grid-column: span 2;
+  font-weight: 600;
+}
+
+/* Лаунчер */
+.launch-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.launch-list li { margin-bottom: 4px; }
+
+.launch-list a {
+  color: #0066cc;
+  text-decoration: none;
+  font-size: 12px;
+}
+
+.launch-list a:hover { text-decoration: underline; }
+
+code, .mono {
+  font-family: Consolas, monospace;
+  font-size: 11px;
+  background: #fff;
+  border: 1px solid var(--border-light);
+  padding: 1px 3px;
+}
+
+details.advanced {
+  margin-top: 6px;
+  font-size: 11px;
+}
+
+details.advanced summary {
+  cursor: pointer;
+  color: #0066cc;
+  user-select: none;
+}
+
+.log-hidden { display: none; }
+
+/* ---------- Страница ECU (широкая) ---------- */
+
+.ecu-page { align-items: flex-start; }
+
+.win-wide { max-width: 720px; }
+
+.ecu-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* ECU блок — компактный, сверху */
+.ecu-block {
+  background: #fdfdfd;
+}
+
+.ecu-readout {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.readout-row {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  padding: 6px 8px;
+  border: 1px inset var(--border);
+  background: #fff;
+}
+
+.readout-row > span:first-child {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.readout-value {
+  font: 16px Consolas, monospace;
+  color: #000;
+}
+
+.readout-tx .readout-value { color: #0a3d62; font-weight: 600; }
+
+.ecu-inputs-wrap {
+  margin-bottom: 8px;
+}
+
+.ecu-inputs-title {
+  font-size: 11px;
+  color: var(--muted);
+  margin-bottom: 4px;
+}
+
+.ecu-inputs {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-height: 24px;
+  padding: 4px 6px;
+  border: 1px solid var(--border-light);
+  background: #fff;
+}
+
+.ecu-input {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font: 11px Consolas, monospace;
+}
+
+.ecu-input-name { flex: 1; color: #000; }
+.ecu-input-value { color: #0a3d62; }
+
+.inlet {
+  display: none;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: #2b6cb0;
+  border: 1px solid #0a3d62;
+}
+
+.ecu-params {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 4px 8px;
+  margin-bottom: 6px;
+}
+
+.ecu-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+}
+
+.ecu-row > span { flex: 0 0 80px; color: var(--muted); }
+.ecu-row > input,
+.ecu-row > select { flex: 1; min-width: 0; }
+
+/* ---------- CAN RX, лёгкий блок ---------- */
+.bus-rx-block {
+  background: #fdfdfd;
+}
+
+.bus-rx-last {
+  min-height: 28px;
+  padding: 4px 6px;
+  border: 1px inset var(--border);
+  background: #fff;
+  white-space: pre-line;
+  color: #0a3d62;
+}
+
+.rx-filter-table {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin-bottom: 6px;
+}
+
+.rx-filter-row {
+  display: grid;
+  grid-template-columns: 82px minmax(80px, 1fr) 78px 24px;
+  gap: 4px;
+  align-items: center;
+}
+
+.rx-filter-row input,
+.rx-filter-row select {
+  min-width: 0;
+  padding: 2px 4px;
+  font-size: 11px;
+}
+
+.rx-filter-row .rx-remove {
+  min-height: 20px;
+  padding: 1px 0;
+  color: #8b0000;
+}
+
+.rx-btn-row {
+  justify-content: flex-start;
+  margin: 4px 0 7px;
+}
+
+/* ---------- CAN controller ---------- */
+.controller-block { background: #fdfdfd; }
+
+.ctrl-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 3px 8px;
+  margin-bottom: 6px;
+}
+
+.ctrl-cell {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+}
+
+.ctrl-cell > span:first-child {
+  flex: 0 0 110px;
+  color: var(--muted);
+}
+
+.ctrl-pill {
+  flex: 1;
+  display: inline-block;
+  padding: 0 6px;
+  border: 1px solid var(--border);
+  background: #d9efd9;
+  color: #1f5d1f;
+  font-weight: 600;
+  text-align: center;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.ctrl-pill[data-mode="passive"] { background: #fff4cc; color: #6e4a00; border-color: #d8b35d; }
+.ctrl-pill[data-mode="bus-off"] { background: #f7cfcf; color: #8b0000; border-color: #b45050; }
+
+.ctrl-num {
+  flex: 1;
+  font: 600 12px Consolas, monospace;
+  color: #0a3d62;
+}
+
+/* ---------- Зона со связями ---------- */
+.wiring-wrap {
+  position: relative;
+}
+
+.wiring-svg {
+  display: none;
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 1;
+}
+
+.wiring-cols {
+  position: relative;
+  z-index: 2;
+  display: grid;
+  grid-template-columns: 1.4fr 1fr;
+  gap: 8px;
+}
+
+/* Подключённые датчики */
+.connected-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-height: 60px;
+}
+
+.sensor-card {
+  border: 1px solid var(--border);
+  background: #fff;
+  padding: 4px 6px;
+}
+
+.sensor-head {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-bottom: 4px;
+}
+
+.sensor-alias {
+  flex: 1;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 2px 4px;
+}
+
+.sensor-remove {
+  min-height: 18px;
+  padding: 1px 6px;
+  font-size: 11px;
+  color: #8b0000;
+}
+
+.sensor-settings {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 2px 8px;
+  margin-bottom: 4px;
+}
+
+.sensor-setting {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+}
+
+.sensor-setting > span { flex: 0 0 60px; color: var(--muted); }
+.sensor-setting > input,
+.sensor-setting > select { flex: 1; min-width: 0; padding: 1px 3px; }
+
+.sensor-out {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border-top: 1px dashed var(--border-light);
+  padding-top: 3px;
+  font: 11px Consolas, monospace;
+}
+
+.sensor-out-value { flex: 1; color: #0a3d62; }
+
+.outlet {
+  display: none;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: #38a169;
+  border: 1px solid #1f6b3a;
+  margin-left: auto;
+}
+
+/* Список доступных датчиков — простой Win7 listbox */
+.win-list {
+  list-style: none;
+  margin: 0 0 6px;
+  padding: 0;
+  border: 1px inset var(--border);
+  background: #fff;
+  min-height: 120px;
+  max-height: 240px;
+  overflow-y: auto;
+}
+
+.win-list li {
+  padding: 2px 6px;
+  font-size: 12px;
+  cursor: default;
+  user-select: none;
+}
+
+.win-list li:hover { background: #e5f1fb; }
+.win-list li.selected { background: #2b6cb0; color: #fff; }
+
+/* ---------- Fullscreen CAN bus monitor ---------- */
+
+.bus-page {
+  display: block;
+  min-height: 100vh;
+  padding: 0;
+  background: #ffffff;
+}
+
+.bus-shell {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background: #fff;
+  color: #111;
+}
+
+.bus-titlebar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  background: linear-gradient(180deg, #f9fbfd 0%, #dceaf7 46%, #c7ddec 100%);
+  border-bottom: 1px solid #8aa7bd;
+  color: #102a43;
+}
+
+.bus-titlebar strong {
+  display: block;
+  font-size: 15px;
+}
+
+.bus-title-sub {
+  display: block;
+  font-size: 11px;
+  color: #3b5568;
+}
+
+.bus-title-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.bus-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 5px 8px;
+  background: #f3f3f3;
+  border-bottom: 1px solid #b8b8b8;
+  font-size: 12px;
+}
+
+.bus-toolbar .sep {
+  width: 1px;
+  height: 18px;
+  background: #b8b8b8;
+}
+
+.bus-content {
+  flex: 1;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 300px;
+  grid-template-rows: minmax(220px, 40vh) minmax(180px, 26vh) auto auto;
+  gap: 8px;
+  padding: 8px;
+  background: #fff;
+}
+
+.bus-panel {
+  border: 1px solid #9aaec0;
+  background: #fff;
+  box-shadow: inset 0 1px 0 #fff;
+}
+
+.bus-panel-title {
+  padding: 5px 8px;
+  background: linear-gradient(180deg, #ffffff 0%, #e8f0f7 100%);
+  border-bottom: 1px solid #b8c7d3;
+  font-weight: 600;
+  color: #102a43;
+}
+
+.bus-topology-panel {
+  grid-column: 1;
+  grid-row: 1;
+}
+
+.bus-info-panel {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  overflow: auto;
+}
+
+.bus-log-panel {
+  grid-column: 1;
+  grid-row: 2;
+  overflow: hidden;
+}
+
+.bus-graph {
+  display: flex;
+  flex-direction: column;
+  height: calc(100% - 27px);
+  min-height: 230px;
+  background:
+    linear-gradient(#f7fbff 1px, transparent 1px),
+    linear-gradient(90deg, #f7fbff 1px, transparent 1px),
+    #ffffff;
+  background-size: 24px 24px;
+}
+
+.graph-toolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  padding: 6px 8px;
+  border-bottom: 1px solid #c8d3dc;
+  background: #f8fbfd;
+  font-size: 11px;
+}
+
+.graph-toolbar label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.graph-toolbar select {
+  min-width: 90px;
+  padding: 1px 3px;
+  font-size: 11px;
+}
+
+.graph-stat {
+  font-family: Consolas, monospace;
+  color: #1f4e79;
+}
+
+.graph-stage {
+  position: relative;
+  flex: 1;
+  min-height: 150px;
+  padding: 10px 42px 12px 10px;
+}
+
+.traffic-graph {
+  width: 100%;
+  height: 100%;
+  border: 1px inset #9aaec0;
+  background: linear-gradient(180deg, #ffffff 0%, #f3f8fc 100%);
+}
+
+.graph-grid line {
+  stroke: #d5e2eb;
+  stroke-width: 0.35;
+  vector-effect: non-scaling-stroke;
+}
+
+.graph-fill {
+  fill: rgba(43, 108, 176, 0.14);
+}
+
+.graph-line {
+  fill: none;
+  stroke: #1f4e79;
+  stroke-width: 1.5;
+  vector-effect: non-scaling-stroke;
+}
+
+.graph-y-axis {
+  position: absolute;
+  top: 10px;
+  right: 6px;
+  bottom: 12px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  font: 10px Consolas, monospace;
+  color: #3b5568;
+}
+
+.graph-legend {
+  padding: 0 10px 8px;
+  color: #3b5568;
+  font-size: 11px;
+}
+
+.bus-ecu-card.tx-active {
+  border-color: #c06b00;
+  background: #fff3cd;
+}
+
+.bus-ecu-card.rx-active {
+  border-color: #2f855a;
+  background: #e7f6ec;
+}
+
+.bus-ecu-list {
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.bus-ecu-card {
+  border: 1px solid #b8c7d3;
+  background: #fff;
+  padding: 7px;
+  font-size: 12px;
+}
+
+.bus-ecu-card-head {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 4px;
+}
+
+.bus-ecu-card a {
+  color: #0066cc;
+}
+
+.bus-log-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.bus-log-table thead {
+  background: #e8f0f7;
+}
+
+.bus-log-table th,
+.bus-log-table td {
+  border: 1px solid #c8d3dc;
+  padding: 4px 6px;
+  text-align: left;
+}
+
+.bus-log-table tbody {
+  font-family: Consolas, "Courier New", monospace;
+}
+
+/* ---------- Bit-level + controller panels ---------- */
+
+.bus-bits-panel {
+  grid-column: 1 / span 2;
+  grid-row: 3;
+  padding: 0 0 8px;
+}
+
+.bus-ctl-panel {
+  grid-column: 1 / span 2;
+  grid-row: 4;
+}
+
+.bits-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 18px;
+  padding: 6px 10px;
+  font-size: 12px;
+  border-bottom: 1px dashed #c8d3dc;
+}
+
+.bits-line {
+  margin: 8px 10px 0;
+  padding: 8px;
+  background: #0f1f2f;
+  color: #e7eef5;
+  font: 12px/1.6 Consolas, monospace;
+  white-space: pre-wrap;
+  word-break: break-all;
+  border: 1px inset #5a7a96;
+  border-radius: 2px;
+  max-height: 120px;
+  overflow: auto;
+}
+
+.bits-line .bit { display: inline-block; padding: 0 1px; }
+.bit-sof { color: #f1c40f; font-weight: 700; }
+.bit-arb { color: #5db2ff; }
+.bit-ctl { color: #b388ff; }
+.bit-data { color: #7ee8a3; }
+.bit-crc { color: #ff9966; }
+.bit-trailer { color: #888; }
+.bit.stuff {
+  background: #ffd400;
+  color: #102a43;
+  border-radius: 2px;
+}
+
+.bits-legend {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 6px 10px;
+  font-size: 11px;
+  color: #3b5568;
+}
+
+.legend-dot {
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  margin-right: 4px;
+  border: 1px solid #888;
+  vertical-align: middle;
+}
+.legend-sof { background: #f1c40f; }
+.legend-arb { background: #5db2ff; }
+.legend-ctl { background: #b388ff; }
+.legend-data { background: #7ee8a3; }
+.legend-crc { background: #ff9966; }
+.legend-trailer { background: #cccccc; }
+.legend-stuff { background: #ffd400; }
+
+.bus-arb {
+  padding: 4px 10px 0;
+}
+
+.bus-arb-list {
+  list-style: none;
+  margin: 4px 0 0;
+  padding: 0;
+  max-height: 90px;
+  overflow: auto;
+  font: 12px Consolas, monospace;
+  border: 1px solid #c8d3dc;
+  background: #fafafa;
+}
+
+.bus-arb-list li {
+  padding: 2px 6px;
+  border-bottom: 1px solid #eee;
+}
+.bus-arb-list li.muted { color: #688; font-style: italic; }
+
+.bus-ctl-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.bus-ctl-table thead {
+  background: #e8f0f7;
+}
+
+.bus-ctl-table th,
+.bus-ctl-table td {
+  border: 1px solid #c8d3dc;
+  padding: 4px 8px;
+  text-align: left;
+}
+
+.ctl-mode {
+  display: inline-block;
+  padding: 0 6px;
+  border: 1px solid #6f8ea8;
+  background: #d9efd9;
+  color: #1f5d1f;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.ctl-mode[data-mode="passive"] { background: #fff4cc; color: #6e4a00; border-color: #d8b35d; }
+.ctl-mode[data-mode="bus-off"] { background: #f7cfcf; color: #8b0000; border-color: #b45050; }
+

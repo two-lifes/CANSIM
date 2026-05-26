@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>LinuxCAN — ECU</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body class="ecu-page">
+  <div class="win win-wide">
+    <div class="titlebar">
+      <span class="app-name">LinuxCAN — ECU <span data-el="titleEcuId">…</span></span>
+      <span class="win-btns">
+        <span class="win-btn">—</span>
+        <span class="win-btn">□</span>
+        <span class="win-btn">×</span>
+      </span>
+    </div>
+
+    <div class="client ecu-grid">
+      <!-- Колонка: ECU (вверху, как просили) -->
+      <fieldset class="group ecu-block">
+        <legend>Блок управления (ECU)</legend>
+
+        <div class="ecu-readout">
+          <div class="readout-row">
+            <span>Вычислено</span>
+            <span class="readout-value" data-el="ecuComputed">—</span>
+          </div>
+          <div class="readout-row readout-tx">
+            <span>На CAN (TX value)</span>
+            <span class="readout-value" data-el="ecuTxValue">—</span>
+          </div>
+        </div>
+
+        <div class="ecu-inputs-wrap">
+          <div class="ecu-inputs-title">Входы</div>
+          <div class="ecu-inputs" data-el="ecuInputs"></div>
+        </div>
+
+        <div class="ecu-params">
+          <label class="ecu-row">
+            <span>Формула</span>
+            <select data-el="ecuFormula"></select>
+          </label>
+          <label class="ecu-row" data-el="ecuFormulaCustomRow">
+            <span>Выражение</span>
+            <input type="text" data-el="ecuFormulaCustom" class="mono" />
+          </label>
+          <label class="ecu-row">
+            <span>Scale</span>
+            <input type="number" step="0.1" data-el="ecuScale" />
+          </label>
+          <label class="ecu-row">
+            <span>Offset</span>
+            <input type="number" step="0.1" data-el="ecuOffset" />
+          </label>
+          <label class="ecu-row">
+            <span>TX CAN ID</span>
+            <input type="text" data-el="ecuTxId" class="mono" />
+          </label>
+          <label class="ecu-row">
+            <span>Режим TX</span>
+            <select data-el="ecuTxMode">
+              <option value="interval">Периодически</option>
+              <option value="manual">Вручную</option>
+            </select>
+          </label>
+          <label class="ecu-row">
+            <span>Период TX (мс)</span>
+            <input type="number" step="50" min="50" data-el="ecuTxInterval" />
+          </label>
+        </div>
+        <div class="btn-row">
+          <button type="button" class="primary" data-el="ecuTxNow">TX сейчас</button>
+        </div>
+      </fieldset>
+
+      <fieldset class="group bus-rx-block">
+        <legend>Шина — RX</legend>
+        <div class="rx-filter-table" data-el="busRxFilters"></div>
+        <div class="btn-row rx-btn-row">
+          <button type="button" data-el="busRxAdd">Добавить фильтр</button>
+          <button type="button" class="primary" data-el="busRxApply">Применить RX</button>
+        </div>
+        <div>
+          <div class="ecu-inputs-title">Последние кадры</div>
+          <div class="bus-rx-last mono" data-el="busRxLast">—</div>
+        </div>
+      </fieldset>
+
+      <fieldset class="group controller-block">
+        <legend>CAN контроллер</legend>
+        <div class="ctrl-grid">
+          <div class="ctrl-cell">
+            <span>Режим</span>
+            <span class="ctrl-pill" data-el="ctrlMode">—</span>
+          </div>
+          <div class="ctrl-cell">
+            <span>TEC</span>
+            <span class="ctrl-num" data-el="ctrlTec">0</span>
+          </div>
+          <div class="ctrl-cell">
+            <span>REC</span>
+            <span class="ctrl-num" data-el="ctrlRec">0</span>
+          </div>
+          <div class="ctrl-cell">
+            <span>Транспорт</span>
+            <span class="mono" data-el="ctrlTransport">…</span>
+          </div>
+          <div class="ctrl-cell">
+            <span>TX ok / err</span>
+            <span class="mono" data-el="ctrlTxStats">0 / 0</span>
+          </div>
+          <div class="ctrl-cell">
+            <span>PHY RX ok / err</span>
+            <span class="mono" data-el="ctrlRxStats">0 / 0</span>
+          </div>
+          <div class="ctrl-cell">
+            <span>APP RX ok</span>
+            <span class="mono" data-el="ctrlAppRxStats">0</span>
+          </div>
+          <div class="ctrl-cell">
+            <span>Арбитраж проигран</span>
+            <span class="mono" data-el="ctrlArbLost">0</span>
+          </div>
+          <div class="ctrl-cell">
+            <span>Bus-off events</span>
+            <span class="mono" data-el="ctrlBusOff">0</span>
+          </div>
+        </div>
+        <div class="btn-row">
+          <button type="button" data-el="ctrlResetBusOff" title="Сброс из bus-off в active">Сброс bus-off</button>
+        </div>
+      </fieldset>
+
+      <!-- Wiring между датчиками и ECU -->
+      <div class="wiring-wrap" data-el="wiringContainer">
+        <svg data-el="wiringSvg" class="wiring-svg"></svg>
+
+        <div class="wiring-cols">
+          <!-- Подключённые датчики (с выходами) -->
+          <fieldset class="group sensors-connected">
+            <legend>Подключённые датчики</legend>
+            <div data-el="connectedList" class="connected-list"></div>
+          </fieldset>
+
+          <!-- Доступные датчики (список Win7) -->
+          <fieldset class="group sensors-available">
+            <legend>Каталог датчиков</legend>
+            <ul class="win-list" data-el="availableList"></ul>
+            <div class="btn-row">
+              <button type="button" data-el="availableAdd">Добавить датчик →</button>
+            </div>
+          </fieldset>
+        </div>
+      </div>
+    </div>
+
+    <div class="statusbar">
+      <span class="status-dot err" data-el="stDot"></span>
+      <span class="status-text err" data-el="stText">Нет связи</span>
+      <span class="sep"></span>
+      <span class="hint" data-el="ecuInfo"></span>
+    </div>
+  </div>
+
+  <script type="module">
+    import { bootEcuApp } from "./ecu-app.js?v=20260526";
+    bootEcuApp(document);
+  </script>
+</body>
+</html>

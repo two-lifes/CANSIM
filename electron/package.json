@@ -1,0 +1,13 @@
+{
+  "name": "linuxcan-electron",
+  "version": "0.2.0",
+  "private": true,
+  "main": "main.cjs",
+  "scripts": {
+    "start": "electron .",
+    "postinstall": "node -e \"console.log('Убедитесь: ../build/linuxcan собран (../linuxcan из корня)')\""
+  },
+  "devDependencies": {
+    "electron": "^35.0.0"
+  }
+}

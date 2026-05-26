@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>LinuxCAN</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="win">
+    <div class="titlebar">
+      <span class="app-name">LinuxCAN — Пуск</span>
+      <span class="win-btns"><span class="win-btn">—</span><span class="win-btn">□</span><span class="win-btn">×</span></span>
+    </div>
+    <div class="client">
+      <fieldset class="group">
+        <legend>Шина</legend>
+        <ul class="launch-list">
+          <li><a href="http://127.0.0.1:8750/bus.html">CAN Bus Monitor</a> <span class="hint">полноэкранно</span></li>
+        </ul>
+        <p class="hint" style="margin-top:8px">Показывает шину, ECU-модули и текущие кадры.</p>
+      </fieldset>
+
+      <fieldset class="group">
+        <legend>Блоки ECU</legend>
+        <ul class="launch-list">
+          <li><a href="http://127.0.0.1:8765/ecu.html">ECU engine</a> <span class="hint">:8765</span></li>
+          <li><a href="http://127.0.0.1:8766/ecu.html">ECU dashboard</a> <span class="hint">:8766</span></li>
+          <li><a href="http://127.0.0.1:8767/ecu.html">ECU gateway</a> <span class="hint">:8767</span></li>
+        </ul>
+        <p class="hint" style="margin-top:8px">Запуск сети: <code>./linuxcan</code></p>
+        <p class="hint">Список берётся из <code>ecus/*/ecu.json</code>; адреса печатаются в терминале.</p>
+      </fieldset>
+
+      <fieldset class="group placeholder">
+        <legend>Сессия</legend>
+        <p class="hint">Зарезервировано</p>
+      </fieldset>
+    </div>
+    <div class="statusbar">
+      <span class="status-dot ok"></span>
+      <span class="status-text ok">Справка</span>
+      <span class="sep"></span>
+      <span class="hint">candump vcan0</span>
+    </div>
+  </div>
+</body>
+</html>

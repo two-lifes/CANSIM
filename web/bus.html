@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>LinuxCAN — CAN Bus</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body class="bus-page">
+  <div class="bus-shell">
+    <div class="bus-titlebar">
+      <div>
+        <strong>LinuxCAN Diagnostic Monitor</strong>
+        <span class="bus-title-sub">CAN bus topology / vcan0</span>
+      </div>
+      <div class="bus-title-actions">
+        <span id="busStatusDot" class="status-dot err"></span>
+        <span id="busStatusText" class="status-text err">Нет связи</span>
+      </div>
+    </div>
+
+    <div class="bus-toolbar">
+      <button type="button" id="clearLog">Очистить лог</button>
+      <button type="button" id="pauseLog">Пауза</button>
+      <span class="sep"></span>
+      <span>Кадров: <b id="frameCount">0</b></span>
+      <span>Последний ID: <b id="lastCanId">—</b></span>
+      <span>Монитор: <b id="monitorEcu">—</b></span>
+    </div>
+
+    <div class="bus-content">
+      <section class="bus-panel bus-topology-panel">
+        <div class="bus-panel-title">Живой граф шины</div>
+        <div class="bus-graph">
+          <div class="graph-toolbar">
+            <label>
+              <span>Метрика</span>
+              <select id="graphMetric">
+                <option value="frames">frames / sec</option>
+                <option value="bits">bits / sec</option>
+                <option value="errors">errors / sec</option>
+              </select>
+            </label>
+            <label>
+              <span>Окно</span>
+              <select id="graphWindow">
+                <option value="5">5 sec</option>
+                <option value="10" selected>10 sec</option>
+                <option value="30">30 sec</option>
+              </select>
+            </label>
+            <label>
+              <span>Масштаб</span>
+              <select id="graphScale">
+                <option value="auto" selected>auto</option>
+                <option value="fixed">fixed</option>
+              </select>
+            </label>
+            <span class="graph-stat">now: <b id="graphNow">0</b></span>
+            <span class="graph-stat">max: <b id="graphMax">0</b></span>
+          </div>
+          <div class="graph-stage">
+            <svg id="trafficGraph" class="traffic-graph" viewBox="0 0 100 100" preserveAspectRatio="none">
+              <g class="graph-grid">
+                <line x1="0" y1="20" x2="100" y2="20"></line>
+                <line x1="0" y1="40" x2="100" y2="40"></line>
+                <line x1="0" y1="60" x2="100" y2="60"></line>
+                <line x1="0" y1="80" x2="100" y2="80"></line>
+                <line x1="25" y1="0" x2="25" y2="100"></line>
+                <line x1="50" y1="0" x2="50" y2="100"></line>
+                <line x1="75" y1="0" x2="75" y2="100"></line>
+              </g>
+              <path id="trafficGraphFill" class="graph-fill" d=""></path>
+              <path id="trafficGraphLine" class="graph-line" d=""></path>
+            </svg>
+            <div class="graph-y-axis">
+              <span id="graphYMax">auto</span>
+              <span>0</span>
+            </div>
+          </div>
+          <div id="graphLegend" class="graph-legend">Ожидание кадров…</div>
+        </div>
+      </section>
+
+      <aside class="bus-panel bus-info-panel">
+        <div class="bus-panel-title">ECU modules</div>
+        <div id="ecuList" class="bus-ecu-list"></div>
+      </aside>
+
+      <section class="bus-panel bus-log-panel">
+        <div class="bus-panel-title">CAN traffic</div>
+        <table class="bus-log-table">
+          <thead>
+            <tr>
+              <th>Time</th>
+              <th>ID</th>
+              <th>Value</th>
+              <th>Label</th>
+            </tr>
+          </thead>
+          <tbody id="frameLog"></tbody>
+        </table>
+      </section>
+
+      <section class="bus-panel bus-bits-panel">
+        <div class="bus-panel-title">Последний кадр на проводе</div>
+        <div class="bits-summary">
+          <span>TX / победитель: <b id="bitsWinner">—</b></span>
+          <span>ID: <span class="mono" id="bitsId">—</span></span>
+          <span>DLC: <span class="mono" id="bitsDlc">—</span></span>
+          <span>CRC: <span class="mono" id="bitsCrc">—</span></span>
+          <span>ACK: <b id="bitsAck">—</b></span>
+          <span>Бит: <span class="mono" id="bitsLen">—</span></span>
+          <span>Stuff: <span class="mono" id="bitsStuff">—</span></span>
+          <span>Errors: <b id="bitsErrors">—</b></span>
+        </div>
+        <pre class="bits-line" id="bitsLine">—</pre>
+        <div class="bits-legend">
+          <span><i class="legend-dot legend-sof"></i> SOF</span>
+          <span><i class="legend-dot legend-arb"></i> ARB</span>
+          <span><i class="legend-dot legend-ctl"></i> CTL</span>
+          <span><i class="legend-dot legend-data"></i> DATA</span>
+          <span><i class="legend-dot legend-crc"></i> CRC</span>
+          <span><i class="legend-dot legend-trailer"></i> ACK/EOF</span>
+          <span><i class="legend-dot legend-stuff"></i> stuff bit</span>
+        </div>
+        <div class="bus-arb">
+          <div class="bus-panel-title">Арбитраж</div>
+          <ul class="bus-arb-list" id="arbList"></ul>
+        </div>
+      </section>
+
+      <section class="bus-panel bus-ctl-panel">
+        <div class="bus-panel-title">Состояния контроллеров</div>
+        <table class="bus-ctl-table">
+          <thead>
+            <tr>
+              <th>ECU</th><th>Mode</th><th>TEC</th><th>REC</th><th>TX ok/err</th><th>PHY RX ok/err</th><th>APP RX</th><th>Arb lost</th><th>BusOff</th>
+            </tr>
+          </thead>
+          <tbody id="ctlBody"></tbody>
+        </table>
+      </section>
+    </div>
+  </div>
+
+  <script type="module" src="./bus-page.js?v=20260526-graph"></script>
+</body>
+</html>

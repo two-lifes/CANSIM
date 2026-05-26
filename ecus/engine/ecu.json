@@ -1,0 +1,13 @@
+{
+  "id": "engine",
+  "port": 8765,
+  "page": "ecu.html",
+  "can": "vcan0",
+  "tx": { "can_id": "0x100", "encoding": "float32" },
+  "rx": {
+    "filters": [
+      { "can_id": "0x200", "encoding": "float32", "label": "gateway_value" },
+      { "can_id": "0x300", "encoding": "float32", "label": "dashboard_ack" }
+    ]
+  }
+}
