@@ -115,6 +115,15 @@ cd electron && npm install && npm start
 
 ## Тесты
 
+Unit-тесты (GoogleTest, скачивается при конфигурации): CRC-15, bit stuffing, арбитраж,
+TEC/REC и переходы active → passive → bus-off.
+
+```bash
+cmake -B build -DCANSIM_BUILD_TESTS=ON
+cmake --build build -j
+ctest --test-dir build --output-on-failure
+```
+
 Смотреть шину (отдельный терминал):
 
 ```bash
