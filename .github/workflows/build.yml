@@ -17,7 +17,10 @@ jobs:
           sudo apt-get install -y --no-install-recommends cmake g++
 
       - name: Configure
-        run: cmake -B build -DCMAKE_BUILD_TYPE=Release
+        run: cmake -B build -DCMAKE_BUILD_TYPE=Release -DCANSIM_BUILD_TESTS=ON
 
       - name: Build
         run: cmake --build build -j
+
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
