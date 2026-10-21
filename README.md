@@ -1,5 +1,7 @@
 # CANSIM
 
+[![build](https://github.com/two-lifes/CANSIM/actions/workflows/build.yml/badge.svg)](https://github.com/two-lifes/CANSIM/actions/workflows/build.yml)
+
 Битовый симулятор CAN-сети на C++ с веб-интерфейсом: отдельный процесс на каждое ECU,
 общая шина через демон `linuxcan-bussim`, зеркалирование в `vcan0` для `candump` / `cansend`.
 
