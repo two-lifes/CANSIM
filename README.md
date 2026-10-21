@@ -95,7 +95,8 @@ UI в браузере:
 - примеры из репозитория:
   - http://127.0.0.1:8765/ecu.html — engine
   - http://127.0.0.1:8766/ecu.html — dashboard
-  - http://127.0.0.1:8767/ecu.html — gateway
+  - http://127.0.0.1:8767/ecu.html — dashboard2
+  - http://127.0.0.1:8768/ecu.html — engine2
 
 Один ECU:
 
